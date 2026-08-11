@@ -4,6 +4,11 @@ Fusion Cutter is a source-level client and server patch framework for *Star Wars
 
 The project currently supports the Steam and current GOG retail releases, Mod Tools, and the Classic Collection. Available patches are selected by target and role, so one codebase can provide client fixes, dedicated-server support, configurable engine limits, and multiplayer improvements without modifying the game files on disk.
 
+## Patch development
+
+- [Writing a Patch](docs/patches.md)
+- [Patch Author Reference](docs/reference.md)
+
 Fusion Cutter is under active development. Release packaging and end-user documentation are not yet complete; the instructions below describe the current development artifacts.
 
 ## Installation
@@ -82,7 +87,7 @@ ctest --test-dir build/vs2022-x86 -C RelWithDebInfo --output-on-failure
 ctest --test-dir build/vs2022-x64 -C RelWithDebInfo --output-on-failure
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the required design, style, formatting, and validation rules.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the project requirements, style, formatting, and validation rules.
 
 ## License
 
