@@ -1,0 +1,6 @@
+LIBRARY battlefront2_original_stub
+
+EXPORTS
+    GameWinMain @1
+    FC_Test_GetGameWinMainCallCount
+    FC_Test_CopyGameWinMainArguments

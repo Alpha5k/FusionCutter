@@ -1,0 +1,96 @@
+include_guard(GLOBAL)
+
+get_filename_component(FC_SOURCE_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+
+function(fc_initialize_build)
+    if(NOT WIN32 OR NOT MSVC)
+        message(FATAL_ERROR "Fusion Cutter currently requires Windows and the Visual Studio 2022 MSVC toolchain.")
+    endif()
+
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" PARENT_SCOPE)
+
+    set(FC_CORE_ROLE "Universal" CACHE STRING "Roles compiled into FusionCutter.dll")
+    set_property(CACHE FC_CORE_ROLE PROPERTY STRINGS Universal Client Server)
+
+    set(FC_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat warnings in project-owned source as errors")
+    set(FC_VERSION_STRING "development" CACHE STRING "Version written to Fusion Cutter diagnostics")
+    set(FC_BUILD_ID "local" CACHE STRING "Stable identifier used to match diagnostics to developer symbols")
+
+    if(FC_CORE_ROLE STREQUAL "Universal")
+        set(core_role_mask 3)
+    elseif(FC_CORE_ROLE STREQUAL "Client")
+        set(core_role_mask 1)
+    elseif(FC_CORE_ROLE STREQUAL "Server")
+        set(core_role_mask 2)
+    else()
+        message(FATAL_ERROR "FC_CORE_ROLE must be Universal, Client, or Server.")
+    endif()
+
+    set(FC_CORE_ROLE_MASK ${core_role_mask} CACHE INTERNAL "Roles compiled into FusionCutter.dll" FORCE)
+
+    if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+        set(FC_ARCHITECTURE "x86" CACHE INTERNAL "Fusion Cutter target architecture")
+    elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(FC_ARCHITECTURE "x64" CACHE INTERNAL "Fusion Cutter target architecture")
+    else()
+        message(FATAL_ERROR "Fusion Cutter supports only x86 and x64 builds.")
+    endif()
+
+    message(STATUS "Fusion Cutter architecture: ${FC_ARCHITECTURE}")
+    message(STATUS "Fusion Cutter core role: ${FC_CORE_ROLE}")
+endfunction()
+
+function(fc_configure_project_target target)
+    target_compile_features(${target} PRIVATE cxx_std_23)
+    set_target_properties(${target} PROPERTIES
+        CXX_EXTENSIONS OFF
+        CXX_SCAN_FOR_MODULES OFF
+    )
+
+    target_compile_definitions(${target} PRIVATE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+    )
+
+    target_compile_options(${target} PRIVATE
+        /EHsc
+        /permissive-
+        /W4
+    )
+
+    if(FC_WARNINGS_AS_ERRORS)
+        target_compile_options(${target} PRIVATE /WX)
+    endif()
+endfunction()
+
+function(fc_configure_core_role target)
+    target_compile_definitions(${target} PRIVATE FC_CORE_SUPPORTED_ROLE_MASK=${FC_CORE_ROLE_MASK})
+endfunction()
+
+function(fc_set_artifact_directories target)
+    set(output_directory "${CMAKE_BINARY_DIR}/artifacts/$<CONFIG>")
+    set_target_properties(${target} PROPERTIES
+        ARCHIVE_OUTPUT_DIRECTORY "${output_directory}"
+        LIBRARY_OUTPUT_DIRECTORY "${output_directory}"
+        PDB_OUTPUT_DIRECTORY "${output_directory}"
+        RUNTIME_OUTPUT_DIRECTORY "${output_directory}"
+    )
+endfunction()
+
+function(fc_add_format_targets)
+    find_program(FC_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
+
+    add_custom_target(format
+        COMMAND "${FC_POWERSHELL_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass
+            -File "${FC_SOURCE_ROOT}/tools/format.ps1"
+        WORKING_DIRECTORY "${FC_SOURCE_ROOT}"
+        VERBATIM
+    )
+
+    add_custom_target(format-check
+        COMMAND "${FC_POWERSHELL_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass
+            -File "${FC_SOURCE_ROOT}/tools/format.ps1" -Check
+        WORKING_DIRECTORY "${FC_SOURCE_ROOT}"
+        VERBATIM
+    )
+endfunction()

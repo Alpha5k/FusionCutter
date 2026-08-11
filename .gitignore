@@ -1,0 +1,20 @@
+AGENTS.md
+
+# CMake and IDE output.
+/build/
+/build-*/
+/cmake-build-*/
+/out/
+/.vs/
+/CMakeUserPresets.json
+
+# Visual Studio user state.
+*.suo
+*.user
+*.VC.db
+*.VC.opendb
+
+# Local formatter/editor artifacts.
+*.clang-format.tmp
+*.swp
+*~

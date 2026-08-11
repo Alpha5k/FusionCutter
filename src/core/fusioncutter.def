@@ -1,0 +1,4 @@
+LIBRARY FusionCutter
+
+EXPORTS
+    FusionCutter_GetCoreApi

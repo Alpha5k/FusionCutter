@@ -1,0 +1,13 @@
+* text=auto eol=crlf
+
+*.bmp -text
+*.dll -text
+*.exe -text
+*.gif -text
+*.ico -text
+*.jpg -text
+*.jpeg -text
+*.lib -text
+*.pdb -text
+*.png -text
+*.zip -text

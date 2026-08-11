@@ -1,0 +1,15 @@
+[submodule "vendor/Catch2"]
+	path = vendor/Catch2
+	url = https://github.com/catchorg/Catch2.git
+[submodule "vendor/SafetyHook"]
+	path = vendor/SafetyHook
+	url = https://github.com/cursey/safetyhook.git
+[submodule "vendor/Zydis"]
+	path = vendor/Zydis
+	url = https://github.com/zyantific/zydis.git
+[submodule "vendor/inih"]
+	path = vendor/inih
+	url = https://github.com/benhoyt/inih.git
+[submodule "vendor/Quill"]
+	path = vendor/Quill
+	url = https://github.com/odygrd/quill.git

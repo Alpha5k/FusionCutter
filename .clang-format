@@ -1,0 +1,33 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ConstructorInitializerIndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+ColumnLimit: 120
+BreakBeforeBraces: Attach
+NamespaceIndentation: None
+
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Pointer
+
+AllowShortBlocksOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortLambdasOnASingleLine: Empty
+
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+
+IncludeBlocks: Preserve
+SortIncludes: Never
+
+LineEnding: CRLF
+InsertNewlineAtEOF: true
+...

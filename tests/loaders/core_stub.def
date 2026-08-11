@@ -1,0 +1,11 @@
+LIBRARY loader_core_stub
+
+EXPORTS
+    FusionCutter_GetCoreApi
+    FC_Test_GetInitializeCount
+    FC_Test_GetUpdateCount
+    FC_Test_CopyInitializeArgs
+    FC_Test_GetHostEventCount
+    FC_Test_WasRequiredModuleLoaded
+    FC_Test_GetLastHostEventLevel
+    FC_Test_GetLastHostEvent
