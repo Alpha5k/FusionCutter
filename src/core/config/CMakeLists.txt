@@ -1,8 +1,11 @@
 add_library(fusioncutter_config STATIC
+    "${FC_SOURCE_ROOT}/include/FusionCutter/environment.hpp"
+    "${FC_SOURCE_ROOT}/include/FusionCutter/templates/environment.hpp"
     "${FC_SOURCE_ROOT}/include/FusionCutter/templates/settings.hpp"
     "${FC_SOURCE_ROOT}/include/FusionCutter/settings.hpp"
     configuration.cpp
     configuration.hpp
+    environment.cpp
     settings.cpp
 )
 

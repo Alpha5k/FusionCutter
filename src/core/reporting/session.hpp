@@ -27,6 +27,7 @@ class Session {
                         std::span<const StatusContributorRef> contributors = {}) noexcept;
     void flush() noexcept;
 
+    [[nodiscard]] bool enabled(LogLevel level) const noexcept;
     void write(LogLevel level, PatchId source, std::string_view message, std::string_view operation,
                PatchId related_patch) noexcept;
 

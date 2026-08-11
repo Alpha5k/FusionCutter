@@ -113,6 +113,11 @@ void publish_test_status(fusioncutter::LogLevel level) {
 [[nodiscard]] int run_ordinary_reporting(std::wstring_view mode) {
     if (mode == L"ordinary") {
         publish_test_status(fusioncutter::LogLevel::Warning);
+        if (!fusioncutter::logging::enabled(fusioncutter::LogLevel::Error) ||
+            !fusioncutter::logging::enabled(fusioncutter::LogLevel::Warning) ||
+            fusioncutter::logging::enabled(fusioncutter::LogLevel::Info)) {
+            return ERROR_INVALID_STATE;
+        }
         fusioncutter::logging::info("DirectTransport", "filtered informational record");
         fusioncutter::logging::error("AimAssist", "expected instruction bytes did not match", "Install input hook");
         fusioncutter::reporting::Session::instance().flush();
@@ -121,6 +126,9 @@ void publish_test_status(fusioncutter::LogLevel level) {
     }
     if (mode == L"off") {
         publish_test_status(fusioncutter::LogLevel::Off);
+        if (fusioncutter::logging::enabled(fusioncutter::LogLevel::Error)) {
+            return ERROR_INVALID_STATE;
+        }
         fusioncutter::logging::error("Core", "this record must remain filtered");
         fusioncutter::reporting::Session::instance().flush();
         return ERROR_SUCCESS;

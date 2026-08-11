@@ -125,11 +125,11 @@ void disable_runtime(PatchInstance& instance) noexcept {
 }
 
 [[nodiscard]] std::expected<ResolvedSettings, OutcomeReason>
-resolve_settings(const catalog::CatalogEntry& entry, const config::Configuration& configuration) {
-    if (entry.definition.configurable) {
-        return configuration.resolve_settings(entry.id);
+resolve_settings(const catalog::SelectedPatch& selected, const config::Configuration& configuration) {
+    if (selected.entry->definition.configurable) {
+        return configuration.resolve_settings(selected.entry->id);
     }
-    return entry.definition.settings.make_defaults();
+    return settings_for_variant(selected.entry->definition, *selected.variant).make_defaults();
 }
 
 [[nodiscard]] std::expected<PatchCandidate, OutcomeReason>
@@ -475,7 +475,7 @@ StartupState run_startup(catalog::Catalog catalog, config::Configuration configu
                    unavailable.has_value()) {
             state.impl_->set_skipped(selected, std::move(*unavailable));
         } else {
-            auto settings = resolve_settings(*selected.entry, configuration);
+            auto settings = resolve_settings(selected, configuration);
             if (!settings.has_value()) {
                 state.impl_->set_failed(selected, std::move(settings.error()));
             } else if (selected.variant->image_timing == ImageTiming::OneShotLate) {

@@ -145,7 +145,7 @@ read_existing_file(const std::filesystem::path& path) {
     std::vector<SectionOwner> sections{{"Patches", {}}};
     for (std::size_t index = 0; index < patches.size(); ++index) {
         const auto& patch = patches[index];
-        if (patch.definition == nullptr || !valid_ini_key(patch.id)) {
+        if (patch.definition == nullptr || patch.settings == nullptr || !valid_ini_key(patch.id)) {
             return std::unexpected(patch_error(patch.id, "patch configuration metadata cannot be represented in INI"));
         }
         for (const auto& other : patches.subspan(index + 1)) {
@@ -156,7 +156,7 @@ read_existing_file(const std::filesystem::path& path) {
 
         bool has_base_section = false;
         std::vector<std::string_view> groups;
-        for (const auto& setting : patch.definition->settings.metadata()) {
+        for (const auto& setting : patch.settings->metadata()) {
             if (!valid_ini_key(setting.key) || setting.default_value.contains('\0') ||
                 setting.default_value.contains('\r') || setting.default_value.contains('\n')) {
                 return std::unexpected(
@@ -248,7 +248,7 @@ void append_comment(std::string& output, std::string_view comment) {
     }
 
     for (const auto& patch : sorted) {
-        const auto metadata = patch.definition->settings.metadata();
+        const auto metadata = patch.settings->metadata();
         std::vector<std::string_view> groups;
         if (std::ranges::any_of(metadata, [](const auto& setting) {
                 return setting.group.empty();
@@ -426,7 +426,7 @@ class ConfigurationParser {
     [[nodiscard]] static std::optional<SectionMatch> find_section(Configuration& configuration,
                                                                   std::string_view section) {
         for (auto& patch : configuration.patch_values_) {
-            const auto metadata = patch.patch.definition->settings.metadata();
+            const auto metadata = patch.patch.settings->metadata();
             if (ascii_iequals(section, patch.patch.id) && std::ranges::any_of(metadata, [](const auto& setting) {
                     return setting.group.empty();
                 })) {
@@ -502,7 +502,7 @@ class ConfigurationParser {
             return 1;
         }
 
-        const auto setting_index = matched->patch->patch.definition->settings.find(matched->group, key);
+        const auto setting_index = matched->patch->patch.settings->find(matched->group, key);
         if (!setting_index.has_value()) {
             configuration.add_diagnostic(line_number,
                                          "unknown setting [" + std::string(section) + "]." + std::string(key));
@@ -535,13 +535,13 @@ std::expected<ResolvedSettings, OutcomeReason> Configuration::resolve_settings(P
         return std::unexpected(patch_error(patch_id, "selected patch has no applicable configuration metadata"));
     }
 
-    auto resolved = found->patch.definition->settings.make_defaults();
+    auto resolved = found->patch.settings->make_defaults();
     for (std::size_t index = 0; index < found->settings.size(); ++index) {
         if (!found->settings[index].has_value()) {
             continue;
         }
         const auto& stored = *found->settings[index];
-        if (auto result = found->patch.definition->settings.apply(resolved, index, stored.value); !result.has_value()) {
+        if (auto result = found->patch.settings->apply(resolved, index, stored.value); !result.has_value()) {
             auto reason = std::move(result.error());
             reason.message = "line " + std::to_string(stored.line) + " [" + stored.section + "]." + stored.key + "='" +
                              displayed_value(stored.value) + "': " + reason.message;
@@ -551,7 +551,7 @@ std::expected<ResolvedSettings, OutcomeReason> Configuration::resolve_settings(P
         }
     }
 
-    if (auto result = found->patch.definition->settings.validate(resolved); !result.has_value()) {
+    if (auto result = found->patch.settings->validate(resolved); !result.has_value()) {
         auto reason = std::move(result.error());
         if (!reason.operation.has_value()) {
             reason.operation = "Validate configuration";
@@ -575,7 +575,7 @@ std::expected<Configuration, OutcomeReason> load_configuration(const std::filesy
     for (const auto& patch : patches) {
         configuration.patch_values_.push_back(
             {patch, std::nullopt,
-             std::vector<std::optional<Configuration::StoredValue>>(patch.definition->settings.metadata().size())});
+             std::vector<std::optional<Configuration::StoredValue>>(patch.settings->metadata().size())});
     }
 
     auto content = read_existing_file(path);

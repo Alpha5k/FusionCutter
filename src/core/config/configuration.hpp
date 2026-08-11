@@ -17,6 +17,7 @@ class ConfigurationParser;
 struct ApplicablePatch {
     PatchId id;
     const PatchDefinition* definition;
+    const SettingsDefinition* settings;
 };
 
 struct ConfigurationDiagnostic {

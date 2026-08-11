@@ -29,7 +29,7 @@ target_link_libraries(fusioncutter_catalog PUBLIC
     fusioncutter_config
 )
 
-if(FC_ARCHITECTURE STREQUAL "x86" AND NOT FC_CORE_ROLE STREQUAL "Client")
+if(FC_ARCHITECTURE STREQUAL "x86")
     target_link_libraries(fusioncutter_catalog PUBLIC Bcrypt Ws2_32)
 endif()
 

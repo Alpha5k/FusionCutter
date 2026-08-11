@@ -1,5 +1,6 @@
 #pragma once
 
+#include "environment.hpp"
 #include "outcome.hpp"
 #include "patching.hpp"
 #include "reporting.hpp"
@@ -9,6 +10,7 @@
 #include <atomic>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string_view>
 #include <typeindex>
@@ -99,6 +101,7 @@ struct PatchVariant {
     ImageTiming image_timing{ImageTiming::Startup};
     StartupFailurePolicy failure_policy{StartupFailurePolicy::Local};
     PatchFactory factory;
+    std::optional<SettingsDefinition> settings_override;
 };
 
 template <typename... Descriptors> class PatchVariants;
@@ -114,6 +117,11 @@ struct PatchDefinition {
     std::span<const PatchId> includes;
     std::span<const PatchVariant> variants;
 };
+
+[[nodiscard]] inline const SettingsDefinition& settings_for_variant(const PatchDefinition& definition,
+                                                                    const PatchVariant& variant) noexcept {
+    return variant.settings_override.has_value() ? *variant.settings_override : definition.settings;
+}
 
 struct PatchBuildEnvelope {
     bool x86;

@@ -153,10 +153,20 @@ dependency_order(std::span<const CatalogEntry> entries, std::span<const std::siz
     bool applies_to_artifact = false;
     for (std::size_t index = 0; index < entry.definition.variants.size(); ++index) {
         const auto& variant = entry.definition.variants[index];
-        if (variant.factory.construct == nullptr ||
-            variant.factory.settings_type != entry.definition.settings.settings_type()) {
+        const auto& settings = settings_for_variant(entry.definition, variant);
+        if (variant.factory.construct == nullptr || variant.factory.settings_type != settings.settings_type()) {
             return std::unexpected(
                 catalog_error("variant factory is missing or uses the wrong settings type", entry.id));
+        }
+        if (!entry.definition.configurable && !settings.metadata().empty()) {
+            return std::unexpected(catalog_error("nonconfigurable patch declares user settings", entry.id));
+        }
+        if (variant.settings_override.has_value()) {
+            if (auto settings_result = settings.validate_metadata(); !settings_result.has_value()) {
+                auto reason = std::move(settings_result.error());
+                reason.related_patch = entry.id;
+                return std::unexpected(std::move(reason));
+            }
         }
         if (!entry.build_envelope.supports(variant.role) ||
             !entry.build_envelope.supports(target_architecture(variant.layout))) {
@@ -252,8 +262,9 @@ std::expected<Catalog, OutcomeReason> initialize_catalog(std::vector<CatalogEntr
 std::vector<config::ApplicablePatch> configurable_patches(const Catalog& catalog, const TargetContext& target) {
     std::vector<config::ApplicablePatch> result;
     for (const auto& entry : catalog.entries()) {
-        if (entry.definition.configurable && applicable_variant(entry, target) != nullptr) {
-            result.push_back({entry.id, &entry.definition});
+        const auto* variant = applicable_variant(entry, target);
+        if (entry.definition.configurable && variant != nullptr) {
+            result.push_back({entry.id, &entry.definition, &settings_for_variant(entry.definition, *variant)});
         }
     }
     return result;

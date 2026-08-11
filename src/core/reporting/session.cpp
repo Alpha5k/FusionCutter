@@ -473,6 +473,11 @@ void Session::flush() noexcept {
     }
 }
 
+bool Session::enabled(LogLevel level) const noexcept {
+    return accepts(state_->level_.load(std::memory_order_relaxed), level) &&
+           state_->logger_.load(std::memory_order_acquire) != nullptr;
+}
+
 void Session::write(LogLevel level, PatchId source, std::string_view message, std::string_view operation,
                     PatchId related_patch) noexcept {
     try {
@@ -498,6 +503,10 @@ void Session::write(LogLevel level, PatchId source, std::string_view message, st
 } // namespace fusioncutter::reporting
 
 namespace fusioncutter::logging {
+
+bool enabled(LogLevel level) noexcept {
+    return reporting::Session::instance().enabled(level);
+}
 
 void write(LogLevel level, PatchId source, std::string_view message, std::string_view operation,
            PatchId related_patch) noexcept {

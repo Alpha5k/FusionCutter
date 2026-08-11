@@ -5,6 +5,7 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <optional>
 #include <utility>
 
 namespace fusioncutter {
@@ -55,9 +56,18 @@ template <typename PatchType, TargetLayout Layout, typename Settings> struct Pat
     TargetImage image;
     ImageTiming image_timing;
     StartupFailurePolicy failure_policy;
+    std::optional<SettingsDefinition> settings_override;
 
     [[nodiscard]] PatchVariant materialize() const noexcept {
-        return {Layout, role, image, image_timing, failure_policy, patch_factory<PatchType, Settings>()};
+        return {
+            .layout = Layout,
+            .role = role,
+            .image = image,
+            .image_timing = image_timing,
+            .failure_policy = failure_policy,
+            .factory = patch_factory<PatchType, Settings>(),
+            .settings_override = settings_override,
+        };
     }
 };
 
@@ -79,6 +89,15 @@ template <typename PatchType, TargetLayout Layout, typename Settings = NoSetting
 [[nodiscard]] auto make_patch_variant(HostRole role, TargetImage image, ImageTiming image_timing = ImageTiming::Startup,
                                       StartupFailurePolicy failure_policy = StartupFailurePolicy::Local) noexcept {
     return patch_detail::PatchVariantDescriptor<PatchType, Layout, Settings>{role, image, image_timing, failure_policy};
+}
+
+template <typename PatchType, TargetLayout Layout, typename Settings>
+    requires(std::derived_from<PatchType, Patch> || std::derived_from<PatchType, RuntimeOnlyPatch>)
+[[nodiscard]] auto make_patch_variant(HostRole role, TargetImage image, SettingsDefinition settings_override,
+                                      ImageTiming image_timing = ImageTiming::Startup,
+                                      StartupFailurePolicy failure_policy = StartupFailurePolicy::Local) noexcept {
+    return patch_detail::PatchVariantDescriptor<PatchType, Layout, Settings>{role, image, image_timing, failure_policy,
+                                                                             std::move(settings_override)};
 }
 
 template <typename... Descriptors> class PatchVariants {

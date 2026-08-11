@@ -54,7 +54,7 @@ class ByteMutation {
 
 [[nodiscard]] std::expected<std::optional<PlanCandidate>, std::string>
 build_candidate(const catalog::CatalogEntry& entry, const PatchVariant& variant, const TargetContext& target) {
-    auto instance = variant.factory.construct(entry.definition.settings.make_defaults(), target);
+    auto instance = variant.factory.construct(settings_for_variant(entry.definition, variant).make_defaults(), target);
     auto* planned = std::get_if<std::unique_ptr<Patch>>(&instance);
     if (planned == nullptr) {
         const auto* runtime_only = std::get_if<std::unique_ptr<RuntimeOnlyPatch>>(&instance);

@@ -292,8 +292,8 @@ template <typename Settings, typename Choice>
 class ChoiceSettingBuilder {
   public:
     ChoiceSettingBuilder(std::string_view key, Choice Settings::* member, Choice default_value,
-                         std::initializer_list<ChoiceValue<Choice>> choices)
-        : key_(key), member_(member), default_(default_value), choices_(choices) {}
+                         std::span<const ChoiceValue<Choice>> choices)
+        : key_(key), member_(member), default_(default_value), choices_(choices.begin(), choices.end()) {}
 
     ChoiceSettingBuilder& description(std::string_view description) {
         description_ = description;
@@ -341,8 +341,35 @@ class ChoiceSettingBuilder {
 template <typename Settings, typename Choice>
     requires std::is_enum_v<Choice>
 ChoiceSettingBuilder<Settings, Choice> choice(std::string_view key, Choice Settings::* member, Choice default_value,
-                                              std::initializer_list<ChoiceValue<Choice>> choices) {
+                                              std::span<const ChoiceValue<Choice>> choices) {
     return {key, member, default_value, choices};
+}
+
+template <typename Settings, typename Choice, std::size_t Size>
+    requires std::is_enum_v<Choice>
+ChoiceSettingBuilder<Settings, Choice> choice(std::string_view key, Choice Settings::* member, Choice default_value,
+                                              const std::array<ChoiceValue<Choice>, Size>& choices) {
+    return choice(key, member, default_value, std::span<const ChoiceValue<Choice>>(choices));
+}
+
+template <typename Settings, typename Choice>
+    requires std::is_enum_v<Choice>
+ChoiceSettingBuilder<Settings, Choice> choice(std::string_view key, Choice Settings::* member, Choice default_value,
+                                              std::initializer_list<ChoiceValue<Choice>> choices) {
+    return {key, member, default_value, std::span(choices.begin(), choices.size())};
+}
+
+template <typename Choice>
+    requires std::is_enum_v<Choice>
+constexpr std::string_view choice_name(Choice value, std::span<const ChoiceValue<Choice>> choices) noexcept {
+    const auto found = std::ranges::find(choices, value, &ChoiceValue<Choice>::value);
+    return found == choices.end() ? std::string_view{} : found->name;
+}
+
+template <typename Choice, std::size_t Size>
+    requires std::is_enum_v<Choice>
+constexpr std::string_view choice_name(Choice value, const std::array<ChoiceValue<Choice>, Size>& choices) noexcept {
+    return choice_name(value, std::span<const ChoiceValue<Choice>>(choices));
 }
 
 template <typename Settings>

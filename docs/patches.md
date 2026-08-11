@@ -270,6 +270,11 @@ UnlockFrameRate(UnlockFrameRateSettings settings, const TargetContext& target) n
 
 Settings may be booleans, integers, floating-point values, strings, or named enum choices. Related values can be placed in named groups, and a finite set of known string keys can represent mappings such as controller bindings. A patch may validate relationships between its completed values, but it never opens or parses the INI itself.
 
+Most variants share the definition's schema. If one role or target needs different settings, pass its schema directly
+to that `make_patch_variant()` call; only the matching configuration receives those entries. A launcher or server tool
+may also provide a startup override through the shared environment helpers. The patch reads that value after selection
+and owns its precedence and failure behavior; the framework toggle remains the outer gate.
+
 See [Settings](reference.md#settings) for every builder and grouping option.
 
 ## What if my patch relies on another patch?

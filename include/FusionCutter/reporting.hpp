@@ -26,6 +26,8 @@ enum class LogLevel {
 
 namespace logging {
 
+[[nodiscard]] bool enabled(LogLevel level) noexcept;
+
 void write(LogLevel level, PatchId source, std::string_view message, std::string_view operation = {},
            PatchId related_patch = {}) noexcept;
 

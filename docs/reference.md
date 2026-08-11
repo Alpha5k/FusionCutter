@@ -14,6 +14,7 @@ This is the complete lookup for Fusion Cutter's patch-facing framework. Start wi
 | Hook or redirect game code and call the original | `inline_hook()`, `mid_hook()`, `redirect_*()`, `OriginalFunction` | [Hooks](#hooks) |
 | Allocate replacement data or access runtime state | `allocate_data()`, `ImageContext` | [Data allocation](#data-allocation) |
 | Add ordinary, choice, grouped, or mapped settings | `setting()`, `choice()`, settings groups | [Settings](#settings) |
+| Read a patch-owned host override | `read_environment_value()`, `read_environment_choice()` | [Environment values](#environment-values) |
 | Publish an instance or receive host updates | `PatchInstanceSlot<T>`, `Updatable` | [Callback bridge](#callback-bridge) |
 | Add diagnostic events or live status | `logging::*`, `StatusContributor` | [Reporting](#reporting) |
 | Return an actionable runtime failure | `OutcomeReason` | [Outcomes and failure reporting](#outcomes-and-failure-reporting) |
@@ -98,7 +99,7 @@ struct PatchDefinition {
 | `configurable` | Whether the user can select/configure the patch. A nonconfigurable patch cannot declare settings. |
 | `category` | Presentation grouping and order. |
 | `description` | Optional user-facing explanation; empty means no generated comment. |
-| `settings` | Optional typed settings schema; default construction means no dedicated settings. |
+| `settings` | Default typed schema for the patch's variants; default construction means no dedicated settings. |
 | `depends_on` | Patch IDs that must install successfully first. |
 | `includes` | Companion patch IDs automatically selected with this patch; explicit disable wins. |
 | `variants` | Supported layout, role, image, timing, implementation, and failure-policy combinations. |
@@ -109,6 +110,7 @@ Current shared categories from `src/patches/categories.hpp` are:
 |---|---|---|
 | `categories::Limits` | Limits | `100` |
 | `categories::Multiplayer` | Multiplayer | `200` |
+| `categories::Networking` | Networking | `250` |
 | `categories::Server` | Server | `300` |
 
 `PresentationCategory` has `name` and integer `order` fields.
@@ -180,6 +182,21 @@ make_patch_variant<PatchType, TargetLayout, Settings = NoSettings>(
     ImageTiming image_timing = ImageTiming::Startup,
     StartupFailurePolicy failure_policy = StartupFailurePolicy::Local)
 ```
+
+The patch definition's schema is the default for every variant. When one role or target exposes different settings,
+pass that variant's schema after the image:
+
+```cpp
+make_patch_variant<ServerTransport, TargetLayout::GOGRetail, DirectTransportSettings>(
+    HostRole::Server,
+    TargetImage::Game,
+    server_settings(),
+    ImageTiming::Startup,
+    StartupFailurePolicy::StartupRequired)
+```
+
+This changes only the settings generated and resolved for that exact variant; the patch keeps one stable identity and
+one toggle.
 
 Collect them in `PatchVariants`:
 
@@ -395,7 +412,9 @@ choice("Mode", &Settings::mode, Mode::Automatic,
     .description("How the patch selects its mode.")
 ```
 
-`choice()` returns a choice builder supporting `.description(text)`. The default must appear in the list. Names must be nonempty and unique under ASCII case-insensitive comparison; user input is matched the same way.
+`choice()` accepts its values as an initializer list, `std::array`, or `std::span` and returns a choice builder supporting `.description(text)`. The default must appear in the list. Names must be nonempty and unique under ASCII case-insensitive comparison; user input is matched the same way.
+
+`choice_name(value, choices)` accepts the same `std::array` or `std::span` metadata and returns the matching user-facing name, or an empty `std::string_view` when the value is absent. It is useful for status output and diagnostics that should use the same names as configuration.
 
 ### Settings groups
 
@@ -456,6 +475,33 @@ Expose the schema from the definition with:
 
 Name `MySettings` as the third `make_patch_variant` template argument. `NoSettings` is the default marker when no dedicated values exist.
 
+## Environment values
+
+Environment values are patch-owned startup inputs. Read them only after Fusion Cutter has selected the patch; the
+patch decides precedence and whether an invalid value disables behavior, warns, or fails preparation.
+
+```cpp
+auto count = read_environment_value<unsigned int>("SPAWN_TIMER");
+
+constexpr std::array policies{
+    ChoiceValue{"Disabled", DirectPolicy::Disabled},
+    ChoiceValue{"PreferDirect", DirectPolicy::PreferDirect},
+    ChoiceValue{"RequireDirect", DirectPolicy::RequireDirect},
+};
+auto policy = read_environment_choice("BF2_DIRECT_POLICY", policies);
+```
+
+Both helpers return `std::expected<std::optional<T>, OutcomeReason>`:
+
+- an empty optional means the variable is absent;
+- a value means parsing succeeded; and
+- an unexpected result describes an unreadable, oversized, or malformed value.
+
+`read_environment_variable()` provides the same three-state result for a bounded raw string. It accepts at most 4096
+bytes. Scalar parsing uses the same Boolean, integer, finite floating-point, and string rules as typed settings;
+choice matching is ASCII case-insensitive. These helpers do not select patches, mutate settings automatically, log,
+or assign failure policy.
+
 ## Reporting
 
 ### Logging
@@ -466,11 +512,15 @@ All patch logging calls are `noexcept`:
 
 ```cpp
 logging::write(level, source, message, operation = {}, related_patch = {});
+logging::enabled(level);
 logging::error(source, message, operation = {}, related_patch = {});
 logging::warning(source, message, operation = {}, related_patch = {});
 logging::info(source, message, operation = {}, related_patch = {});
 logging::debug(source, message, operation = {}, related_patch = {});
 ```
+
+Use `logging::enabled(level)` before assembling an optional or expensive diagnostic message. The write functions still
+perform their own filtering.
 
 `source` is the stable patch ID. `operation` and `related_patch` add optional structured context. Patches do not own log files, configure the backend, or include vendor logging types. The queue is bounded and dropping, but high-volume per-frame or per-packet logging is still inappropriate; prefer counters or rate-limited summaries.
 
@@ -580,6 +630,7 @@ These types are public because the catalog and configuration adapters use them. 
 | `patch_factory<PatchType, Settings>()` | Creates the type-erased factory and verifies constructor shape. |
 | `PatchInstance` | `variant<unique_ptr<Patch>, unique_ptr<RuntimeOnlyPatch>>`. |
 | `PatchBuildEnvelope` | Generated artifact booleans `x86`, `x64`, `client`, `server` with `supports(Architecture)` and `supports(HostRole)`. |
+| `settings_for_variant()` | Returns a variant override when present, otherwise the definition's default schema. |
 
 Patch authors should use `make_patch_variant()` and `PatchVariants` instead of constructing these records manually.
 

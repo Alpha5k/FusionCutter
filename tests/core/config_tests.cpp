@@ -3,6 +3,8 @@
 
 #include <FusionCutter/patch.hpp>
 
+#include <Windows.h>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
@@ -26,6 +28,12 @@ enum class TestMode {
     Automatic,
     Manual,
 };
+
+constexpr std::array kTestModeChoices{
+    fusioncutter::ChoiceValue{"Automatic", TestMode::Automatic},
+    fusioncutter::ChoiceValue{"Manual", TestMode::Manual},
+};
+static_assert(fusioncutter::choice_name(TestMode::Manual, kTestModeChoices) == "Manual");
 
 struct TestSettings {
     int count;
@@ -51,8 +59,7 @@ struct TestSettings {
                 fusioncutter::setting("Ratio", &TestSettings::ratio, 0.5F).range(0.0F, 1.0F),
                 fusioncutter::setting("Enabled", &TestSettings::enabled, true),
                 fusioncutter::setting("Name", &TestSettings::name, std::string("Player")).max_length(16),
-                fusioncutter::choice("Mode", &TestSettings::mode, TestMode::Automatic,
-                                     {{"Automatic", TestMode::Automatic}, {"Manual", TestMode::Manual}}),
+                fusioncutter::choice("Mode", &TestSettings::mode, TestMode::Automatic, kTestModeChoices),
             },
         .groups =
             {
@@ -113,6 +120,12 @@ test_variant(fusioncutter::TargetLayout layout, fusioncutter::HostRole role, fus
         fusioncutter::HostRole::Client,
         {fusioncutter::TargetImage::Game, fusioncutter::Architecture::X86, 0x00400000, 0x00800000},
     };
+}
+
+[[nodiscard]] fusioncutter::TargetContext steam_server_target() {
+    auto target = steam_client_target();
+    target.role = fusioncutter::HostRole::Server;
+    return target;
 }
 
 class TemporaryDirectory {
@@ -248,6 +261,78 @@ TEST_CASE("Settings metadata rejects case-insensitive duplicate keys", "[core][c
     CHECK(result.error().message.contains("more than once"));
 }
 
+TEST_CASE("Variant settings keep role-specific configuration with one patch identity", "[core][config]") {
+    const auto server_settings = test_settings_definition();
+    const std::array variants{
+        test_variant<RuntimeService>(fusioncutter::TargetLayout::SteamRetail, fusioncutter::HostRole::Client,
+                                     fusioncutter::TargetImage::Game),
+        fusioncutter::PatchVariant{
+            fusioncutter::TargetLayout::SteamRetail,
+            fusioncutter::HostRole::Server,
+            fusioncutter::TargetImage::Game,
+            fusioncutter::ImageTiming::Startup,
+            fusioncutter::StartupFailurePolicy::Local,
+            fusioncutter::patch_factory<ConfiguredPatch, TestSettings>(),
+            server_settings,
+        },
+    };
+    auto catalog = fusioncutter::catalog::initialize_catalog(
+        {fusioncutter::catalog::catalog_entry("DirectTransport", patch_definition(true, true, {}, variants, "Network"),
+                                              {true, false, true, true})},
+        {fusioncutter::Architecture::X86, true, true});
+    REQUIRE(catalog.has_value());
+
+    TemporaryDirectory directory;
+    const auto client_patches = fusioncutter::catalog::configurable_patches(*catalog, steam_client_target());
+    auto client = fusioncutter::config::load_configuration(directory.file("Client.ini"), client_patches);
+    REQUIRE(client.has_value());
+    CHECK_FALSE(read_file(directory.file("Client.ini")).contains("[DirectTransport]"));
+
+    const auto server_patches = fusioncutter::catalog::configurable_patches(*catalog, steam_server_target());
+    auto server = fusioncutter::config::load_configuration(directory.file("Server.ini"), server_patches);
+    REQUIRE(server.has_value());
+    CHECK(read_file(directory.file("Server.ini")).contains("[DirectTransport]"));
+    auto resolved = server->resolve_settings("DirectTransport");
+    REQUIRE(resolved.has_value());
+    CHECK(std::move(*resolved).take<TestSettings>().count == 3);
+}
+
+TEST_CASE("Environment helpers distinguish absent, valid, and malformed patch inputs", "[core][config]") {
+    constexpr auto name = "FC_TEST_PATCH_ENVIRONMENT";
+    struct Cleanup {
+        ~Cleanup() {
+            SetEnvironmentVariableA(name, nullptr);
+        }
+        const char* name;
+    } cleanup{name};
+    SetEnvironmentVariableA(name, nullptr);
+
+    auto absent = fusioncutter::read_environment_choice(name, kTestModeChoices);
+    REQUIRE(absent.has_value());
+    CHECK_FALSE(absent->has_value());
+
+    REQUIRE(SetEnvironmentVariableA(name, "manual"));
+    auto choice = fusioncutter::read_environment_choice(name, kTestModeChoices);
+    REQUIRE(choice.has_value());
+    CHECK(*choice == TestMode::Manual);
+
+    REQUIRE(SetEnvironmentVariableA(name, "24"));
+    auto integer = fusioncutter::read_environment_value<int>(name);
+    REQUIRE(integer.has_value());
+    CHECK(*integer == 24);
+
+    REQUIRE(SetEnvironmentVariableA(name, "Unknown"));
+    const auto invalid = fusioncutter::read_environment_choice(name, kTestModeChoices);
+    REQUIRE_FALSE(invalid.has_value());
+    CHECK(invalid.error().message.contains("Automatic, Manual"));
+
+    const std::string oversized(4097, 'A');
+    REQUIRE(SetEnvironmentVariableA(name, oversized.c_str()));
+    const auto too_long = fusioncutter::read_environment_variable(name);
+    REQUIRE_FALSE(too_long.has_value());
+    CHECK(too_long.error().message.contains("4096"));
+}
+
 TEST_CASE("Configuration generation round trips only applicable configurable patches", "[core][config]") {
     const std::array configured_variants{
         test_variant<ConfiguredPatch, TestSettings>(fusioncutter::TargetLayout::SteamRetail,
@@ -327,7 +412,7 @@ TEST_CASE("Existing configuration applies the last recognized value without rewr
                                                     fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game),
     };
     auto definition = patch_definition(true, true, test_settings_definition(), variants);
-    const std::array patches{fusioncutter::config::ApplicablePatch{"AimAssist", &definition}};
+    const std::array patches{fusioncutter::config::ApplicablePatch{"AimAssist", &definition, &definition.settings}};
     constexpr std::string_view content = "[Logging]\r\n"
                                          "Level=debug\r\n"
                                          "\r\n"
@@ -388,7 +473,7 @@ TEST_CASE("Unsafe existing configuration fails before modifying its contents", "
                                                     fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game),
     };
     auto definition = patch_definition(true, true, test_settings_definition(), variants);
-    const std::array patches{fusioncutter::config::ApplicablePatch{"AimAssist", &definition}};
+    const std::array patches{fusioncutter::config::ApplicablePatch{"AimAssist", &definition, &definition.settings}};
 
     TemporaryDirectory directory;
     const std::array cases{
@@ -413,7 +498,7 @@ TEST_CASE("A missing-file write failure keeps compiled defaults available", "[co
                                                     fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game),
     };
     auto definition = patch_definition(true, true, test_settings_definition(), variants);
-    const std::array patches{fusioncutter::config::ApplicablePatch{"AimAssist", &definition}};
+    const std::array patches{fusioncutter::config::ApplicablePatch{"AimAssist", &definition, &definition.settings}};
 
     TemporaryDirectory directory;
     const auto path = directory.file("MissingParent") / "FusionCutter.ini";

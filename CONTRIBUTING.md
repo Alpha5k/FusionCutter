@@ -60,8 +60,9 @@ Use the formatter, editor integration, automation, and review to enforce formatt
 - Give C++ headers the `.hpp` extension and C-compatible boundary headers the `.h` extension. Use `#pragma once`. Group closely related small declarations when that keeps the interface clear, and split files along meaningful responsibilities.
 - Keep public declarations in `include/FusionCutter/<component>.hpp`. Keep small template implementations with the public interface; place substantial template implementation in `include/FusionCutter/templates/<component>.hpp` and include it from the public header.
 - Include the corresponding header first, followed by project, third-party, platform, and standard-library groups. Include what the file directly uses and preserve required platform ordering, such as `WinSock2.h` before `Windows.h`.
-- Use short comments to identify a file, class, function, or block's role when that role needs clarification. This is especially important when one patch contains several features or native integration points.
-- Make comments add information beyond the readable code: explain the game behavior being changed, the defect being fixed, native ABI or layout assumptions, safety constraints, and non-obvious decisions. Describe established behavior and keep the comment beside the declaration or logic it clarifies.
+- Document each patch-owned class and each nontrivial function that represents a distinct feature step, lifecycle action, native integration point, protocol operation, or safety boundary. Put a short role comment above its declaration, or above its definition when it has no separate declaration. A reader should be able to scan the declarations and understand the patch's major components and flow without reading every function body.
+- Simple constructors, destructors, accessors, direct forwarding functions, and self-evident value conversions do not need individual comments. Closely related trivial declarations may share one group comment.
+- Use role comments to summarize what code contributes to the patch or game behavior. Use inline comments to explain why: reverse-engineered behavior, the defect being fixed, ABI or layout assumptions, safety constraints, and non-obvious decisions. Keep comments concise and avoid narrating statements line by line.
 - Keep comments current as behavior changes. Treat an inaccurate comment as a defect.
 - Reserve `clang-format off/on` for a narrow native byte, instruction, or layout representation whose readability depends on its manual layout, and state that reason beside the directive.
 - Prefer C++23 language and standard-library facilities when they provide equivalent behavior and safety. Use custom implementations for measured hot paths and constrained native or crash-reporting work where they provide a concrete benefit.
@@ -76,5 +77,6 @@ Use the formatter, editor integration, automation, and review to enforce formatt
 - Run `./tools/format.ps1 -Check`.
 - Build the affected architecture, role, and configuration with the checked-in CMake presets.
 - Run the most focused available tests that cover the change.
+- For a new or materially changed patch, review its declarations and file-local entry points for the required role comments.
 - Document any validation that could not be performed.
 - Update user or contributor documentation when behavior or supported usage changes.

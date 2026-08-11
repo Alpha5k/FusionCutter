@@ -1,7 +1,6 @@
 #include "colored_chats.hpp"
 
 #include <array>
-#include <bit>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
@@ -20,6 +19,9 @@ constexpr std::uintptr_t kColorLocalOffset = 0x1C;
 
 constexpr std::uint32_t kAdminSender = 0x40;
 constexpr std::uint32_t kTeamChannel = 1;
+constexpr std::uint32_t kOpaqueAlpha = 0xFF00'0000;
+constexpr std::uint32_t kNativeAllyColor = 0xFF01'56D5;
+constexpr std::uint32_t kNativeEnemyColor = 0xFFDF'2020;
 
 constexpr std::uint32_t kAdminCheckOffset = 0x008B;
 constexpr std::uint32_t kChannelCheckOffset = 0x01C9;
@@ -30,10 +32,15 @@ constexpr auto kDisplayPrologue = byte_array<0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x5C,
 constexpr auto kAdminCheck = byte_array<0x8B, 0x55, 0x08, 0x83, 0x3A, 0x40, 0x75, 0x7D>();
 constexpr auto kChannelCheck = byte_array<0x8B, 0x45, 0x08, 0x8B, 0x48, 0x04, 0x3B, 0x4D, 0xE8, 0x75, 0x35>();
 constexpr auto kColorHook = byte_array<0x51, 0x8B, 0xCC, 0x8D, 0x45, 0xE4, 0x50>();
+constexpr auto kSteamGameMessageCall = byte_array<0xE8, 0xA7, 0x34, 0xFE, 0xFF>();
+constexpr auto kGogGameMessageCall = byte_array<0xE8, 0xC7, 0x34, 0xFE, 0xFF>();
+constexpr auto kKillMessageCall = byte_array<0xE8, 0x0A, 0xFE, 0xFF, 0xFF>();
 
 struct TargetData {
     std::uint32_t queue_rva;
     std::uint32_t display_rva;
+    std::uint32_t game_message_call_rva;
+    std::uint32_t kill_message_call_rva;
 };
 
 struct ChatMessageHeader {
@@ -41,8 +48,20 @@ struct ChatMessageHeader {
     std::uint32_t channel;
 };
 
-constexpr TargetData kSteamTarget{0x001D13C0, 0x001D1570};
-constexpr TargetData kGogTarget{0x001D2340, 0x001D24F0};
+struct ColorSetting {
+    std::string_view key;
+    const std::string& text;
+    std::uint32_t& output;
+};
+
+[[nodiscard]] constexpr std::uint32_t pack_color(std::uint32_t rgb) noexcept {
+    return kOpaqueAlpha | rgb;
+}
+
+static_assert(pack_color(0x12'AB'EF) == 0xFF12'AB'EF);
+
+constexpr TargetData kSteamTarget{0x001D13C0, 0x001D1570, 0x001C0534, 0x001A3BD1};
+constexpr TargetData kGogTarget{0x001D2340, 0x001D24F0, 0x001C14C4, 0x001A4B81};
 
 [[nodiscard]] constexpr TargetData target_data(TargetLayout layout) noexcept {
     switch (layout) {
@@ -82,30 +101,28 @@ constexpr TargetData kGogTarget{0x001D2340, 0x001D24F0};
             OutcomeReason{std::string(key) + " must contain exactly six hexadecimal RGB digits", {}, {}});
     }
 
-    // RedColor stores opaque RGBA bytes; configuration uses the conventional RRGGBB order.
-    return std::byteswap((rgb << 8) | 0xFF);
+    // The renderer consumes packed AARRGGBB while configuration supplies RRGGBB.
+    return pack_color(rgb);
 }
 
 } // namespace
 
 std::expected<void, OutcomeReason> validate_colors(ColoredChatsSettings& settings) noexcept {
-    auto color = parse_color("DefaultColor", settings.default_color);
-    if (!color.has_value()) {
-        return std::unexpected(std::move(color.error()));
-    }
-    settings.colors.default_color = *color;
+    const std::array<ColorSetting, 5> color_settings{{
+        {"DefaultColor", settings.default_color, settings.colors.default_color},
+        {"TeamColor", settings.team_color, settings.colors.team_color},
+        {"AdminColor", settings.admin_color, settings.colors.admin_color},
+        {"AllyColor", settings.ally_color, settings.colors.ally_color},
+        {"EnemyColor", settings.enemy_color, settings.colors.enemy_color},
+    }};
 
-    color = parse_color("TeamColor", settings.team_color);
-    if (!color.has_value()) {
-        return std::unexpected(std::move(color.error()));
+    for (const auto& setting : color_settings) {
+        auto color = parse_color(setting.key, setting.text);
+        if (!color.has_value()) {
+            return std::unexpected(std::move(color.error()));
+        }
+        setting.output = *color;
     }
-    settings.colors.team_color = *color;
-
-    color = parse_color("AdminColor", settings.admin_color);
-    if (!color.has_value()) {
-        return std::unexpected(std::move(color.error()));
-    }
-    settings.colors.admin_color = *color;
     return {};
 }
 
@@ -124,6 +141,12 @@ void ColoredChats::build_plan(PatchPlan& plan) {
                                        BytePattern::exact(kQueuePrologue), &ColoredChats::queue_chat_message);
     plan.mid_hook("Color team and admin chat", target.display_rva + kColorHookOffset, BytePattern::exact(kColorHook),
                   &ColoredChats::color_chat_message);
+    const auto game_message_call = layout_ == TargetLayout::SteamRetail ? kSteamGameMessageCall : kGogGameMessageCall;
+    original_game_message_ = plan.redirect_call_with_original(
+        "Color general game-event messages", target.game_message_call_rva, BytePattern::exact(game_message_call),
+        reinterpret_cast<AddGameMessage>(&ColoredChats::color_game_message));
+    plan.redirect_call("Color kill-feed messages", target.kill_message_call_rva, BytePattern::exact(kKillMessageCall),
+                       reinterpret_cast<AddGameMessage>(&ColoredChats::color_game_message));
 }
 
 void ColoredChats::enable_runtime() noexcept {
@@ -177,6 +200,29 @@ void ColoredChats::color_chat_message(MidHookContext& context) noexcept {
 
     // The native display routine copies this stack-local color immediately after the hook.
     std::memcpy(reinterpret_cast<void*>(context.ebp - kColorLocalOffset), &color, sizeof(color));
+}
+
+void __fastcall ColoredChats::color_game_message(void* display, void*, const wchar_t* text,
+                                                 std::uint32_t color) noexcept {
+    const auto original = original_game_message_.get();
+    if (original == nullptr) {
+        return;
+    }
+
+    if (const auto* patch = active_.read(); patch != nullptr) {
+        switch (color) {
+        case kNativeAllyColor:
+            color = patch->colors_.ally_color;
+            break;
+        case kNativeEnemyColor:
+            color = patch->colors_.enemy_color;
+            break;
+        default:
+            break;
+        }
+    }
+
+    original(display, text, color);
 }
 
 } // namespace fusioncutter::patches::colored_chats

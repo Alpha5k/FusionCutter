@@ -2,6 +2,7 @@
 
 #include "outcome.hpp"
 
+#include <array>
 #include <concepts>
 #include <cstddef>
 #include <expected>
@@ -184,7 +185,29 @@ template <typename Settings, typename Choice>
     requires std::is_enum_v<Choice>
 [[nodiscard]] ChoiceSettingBuilder<Settings, Choice> choice(std::string_view key, Choice Settings::* member,
                                                             Choice default_value,
+                                                            std::span<const ChoiceValue<Choice>> choices);
+
+template <typename Settings, typename Choice, std::size_t Size>
+    requires std::is_enum_v<Choice>
+[[nodiscard]] ChoiceSettingBuilder<Settings, Choice> choice(std::string_view key, Choice Settings::* member,
+                                                            Choice default_value,
+                                                            const std::array<ChoiceValue<Choice>, Size>& choices);
+
+template <typename Settings, typename Choice>
+    requires std::is_enum_v<Choice>
+[[nodiscard]] ChoiceSettingBuilder<Settings, Choice> choice(std::string_view key, Choice Settings::* member,
+                                                            Choice default_value,
                                                             std::initializer_list<ChoiceValue<Choice>> choices);
+
+template <typename Choice>
+    requires std::is_enum_v<Choice>
+[[nodiscard]] constexpr std::string_view choice_name(Choice value,
+                                                     std::span<const ChoiceValue<Choice>> choices) noexcept;
+
+template <typename Choice, std::size_t Size>
+    requires std::is_enum_v<Choice>
+[[nodiscard]] constexpr std::string_view choice_name(Choice value,
+                                                     const std::array<ChoiceValue<Choice>, Size>& choices) noexcept;
 
 template <typename Settings>
 [[nodiscard]] SettingsGroup<Settings> settings_group(std::string_view name,

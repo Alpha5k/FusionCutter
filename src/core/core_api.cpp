@@ -39,6 +39,8 @@ struct ProcessState {
     std::unique_ptr<fusioncutter::StartupState> startup;
     std::atomic<fusioncutter::StartupState*> published_startup{};
     std::atomic_uint64_t published_status_revision{};
+    std::vector<fusioncutter::PatchOutcome> reported_patch_outcomes;
+    bool reported_runtime_fatal{};
 };
 
 ProcessState g_process_state;
@@ -95,6 +97,27 @@ reporting_contributors(const fusioncutter::StartupState& startup) {
         contributors.push_back({contributor.name, contributor.contributor});
     }
     return contributors;
+}
+
+void report_patch_result(const fusioncutter::PatchResult& patch) noexcept {
+    if (patch.outcome == fusioncutter::PatchOutcome::Installed) {
+        fusioncutter::reporting::publish_installed_patch(patch.patch_id.data());
+        fusioncutter::logging::info(patch.patch_id, "Patch installed");
+        return;
+    }
+    if ((patch.outcome != fusioncutter::PatchOutcome::Failed && patch.outcome != fusioncutter::PatchOutcome::Skipped) ||
+        !patch.reason.has_value()) {
+        return;
+    }
+
+    const auto& reason = *patch.reason;
+    const auto operation = reason.operation.value_or(std::string{});
+    const auto related = reason.related_patch.value_or(fusioncutter::PatchId{});
+    if (patch.outcome == fusioncutter::PatchOutcome::Failed) {
+        fusioncutter::logging::error(patch.patch_id, reason.message, operation, related);
+    } else {
+        fusioncutter::logging::warning(patch.patch_id, reason.message, operation, related);
+    }
 }
 
 [[nodiscard]] FC_InitializeResult
@@ -213,24 +236,15 @@ probe_late_image(fusioncutter::TargetLayout layout, fusioncutter::HostRole role,
     fusioncutter::reporting::publish_crash_phase(fusioncutter::reporting::CorePhase::PatchPlanning);
     auto startup = fusioncutter::run_startup(std::move(*catalog), std::move(*configuration), startup_images);
     for (const auto& patch : startup.patch_results()) {
-        if (patch.outcome == fusioncutter::PatchOutcome::Installed) {
-            fusioncutter::reporting::publish_installed_patch(patch.patch_id.data());
-            fusioncutter::logging::info(patch.patch_id, "Patch installed");
-        } else if ((patch.outcome == fusioncutter::PatchOutcome::Failed ||
-                    patch.outcome == fusioncutter::PatchOutcome::Skipped) &&
-                   patch.reason.has_value()) {
-            const auto& reason = *patch.reason;
-            const auto operation = reason.operation.value_or(std::string{});
-            const auto related = reason.related_patch.value_or(fusioncutter::PatchId{});
-            if (patch.outcome == fusioncutter::PatchOutcome::Failed) {
-                fusioncutter::logging::error(patch.patch_id, reason.message, operation, related);
-            } else {
-                fusioncutter::logging::warning(patch.patch_id, reason.message, operation, related);
-            }
-        }
+        report_patch_result(patch);
     }
 
     g_process_state.startup = std::make_unique<fusioncutter::StartupState>(std::move(startup));
+    g_process_state.reported_patch_outcomes.clear();
+    g_process_state.reported_patch_outcomes.reserve(g_process_state.startup->patch_results().size());
+    for (const auto& patch : g_process_state.startup->patch_results()) {
+        g_process_state.reported_patch_outcomes.push_back(patch.outcome);
+    }
     g_process_state.published_startup.store(g_process_state.startup.get(), std::memory_order_release);
     g_process_state.published_status_revision.store(g_process_state.startup->status_revision(),
                                                     std::memory_order_release);
@@ -284,9 +298,26 @@ void FC_CALL update() {
             startup->update(probe_late_image);
             const auto revision = startup->status_revision();
             if (g_process_state.published_status_revision.exchange(revision, std::memory_order_acq_rel) != revision) {
+                const auto results = startup->patch_results();
+                if (results.size() == g_process_state.reported_patch_outcomes.size()) {
+                    for (std::size_t index = 0; index < results.size(); ++index) {
+                        if (g_process_state.reported_patch_outcomes[index] != results[index].outcome) {
+                            g_process_state.reported_patch_outcomes[index] = results[index].outcome;
+                            report_patch_result(results[index]);
+                        }
+                    }
+                }
+                const auto& initialization = startup->initialization_result();
+                if (!g_process_state.reported_runtime_fatal &&
+                    initialization.outcome == fusioncutter::InitializationOutcome::Fatal &&
+                    initialization.reason.has_value()) {
+                    g_process_state.reported_runtime_fatal = true;
+                    const auto& reason = *initialization.reason;
+                    fusioncutter::logging::error("Core", reason.message, reason.operation.value_or(std::string{}),
+                                                 reason.related_patch.value_or(fusioncutter::PatchId{}));
+                }
                 const auto contributors = reporting_contributors(*startup);
-                fusioncutter::reporting::Session::instance().publish_status(startup->initialization_result(),
-                                                                            startup->patch_results(), contributors);
+                fusioncutter::reporting::Session::instance().publish_status(initialization, results, contributors);
             }
         }
     } catch (...) {
