@@ -1,6 +1,6 @@
 #include "patch.hpp"
 
-#include "../../categories.hpp"
+#include <FusionCutter/categories.hpp>
 #include "spectator_camera.hpp"
 
 namespace fusioncutter::patches::spectator_camera {
@@ -19,7 +19,7 @@ PatchDefinition definition() {
         .enabled = true,
         .configurable = true,
         .category = categories::Multiplayer,
-        .description = "Smooth jerky camera movement while spectating other players.",
+        .description = "Smooth jerky player movement while spectating other players.",
         .variants = kVariants,
     };
 }

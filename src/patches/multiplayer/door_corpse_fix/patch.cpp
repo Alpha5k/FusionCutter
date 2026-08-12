@@ -1,6 +1,6 @@
 #include "patch.hpp"
 
-#include "../../categories.hpp"
+#include <FusionCutter/categories.hpp>
 #include "door_corpse_fix.hpp"
 
 namespace fusioncutter::patches::door_corpse_fix {

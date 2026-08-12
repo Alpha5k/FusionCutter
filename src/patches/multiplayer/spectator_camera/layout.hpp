@@ -12,7 +12,6 @@ struct SpectatorHookLayout {
     NativeSite<5> object_render_call;
     NativeSite<7> object_render_capture;
     NativeSite<5> camera_publication;
-    NativeSite<5> camera_render;
 };
 
 struct SpectatorContextLayout {
@@ -20,9 +19,7 @@ struct SpectatorContextLayout {
     NativeSite<8> root_matrix_call;
     NativeSite<7> object_publication_arguments;
     NativeSite<14> object_render_arguments;
-    NativeSite<23> camera_publication_arguments;
-    NativeSite<15> camera_interpolator_owner;
-    NativeSite<44> camera_render_arguments;
+    NativeSite<17> camera_publication_arguments;
 };
 
 struct SpectatorStateLayout {

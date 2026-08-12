@@ -1,6 +1,6 @@
 #include "patch.hpp"
 
-#include "../../categories.hpp"
+#include <FusionCutter/categories.hpp>
 #include "crouch_bug_fix.hpp"
 
 namespace fusioncutter::patches::crouch_bug_fix {

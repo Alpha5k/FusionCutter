@@ -1,6 +1,6 @@
 #include "patch.hpp"
 
-#include "../../categories.hpp"
+#include <FusionCutter/categories.hpp>
 #include "gog_fixes.hpp"
 
 namespace fusioncutter::patches::gog_fixes {

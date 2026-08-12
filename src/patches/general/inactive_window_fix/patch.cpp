@@ -1,4 +1,4 @@
-#include "../../categories.hpp"
+#include <FusionCutter/categories.hpp>
 
 #include <FusionCutter/patch.hpp>
 
@@ -80,7 +80,7 @@ PatchDefinition definition() {
         .enabled = true,
         .configurable = true,
         .category = categories::GeneralFixes,
-        .description = "Prevent the game from slowing down while its window is inactive.",
+        .description = "Prevent the game from throttling updates while the window is unfocused.",
         .variants = kVariants,
     };
 }

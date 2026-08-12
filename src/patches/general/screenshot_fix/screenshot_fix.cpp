@@ -55,7 +55,7 @@ void log_capture_failure(std::string_view operation, HRESULT result) noexcept {
 } // namespace
 
 ScreenshotFix::ScreenshotFix(const TargetContext& target) noexcept
-    : game_module_(target.image.base),
+    : image_(target.image),
       device_slot_(target.image.read_at_rva<IDirect3DDevice9*>(layout_for(target.layout).device_slot_rva)),
       target_(target.layout) {}
 
@@ -65,8 +65,11 @@ ScreenshotFix::~ScreenshotFix() {
 
 void ScreenshotFix::build_plan(PatchPlan& plan) {
     const auto& layout = layout_for(target_);
+    auto device_reference =
+        byte_array<0xA1, 0x00, 0x00, 0x00, 0x00, 0x50, 0x8B, 0x08, 0xFF, 0x91, 0xA4, 0x00, 0x00, 0x00>();
+    embed_image_address<1>(device_reference, image_, layout.device_slot_rva);
     plan.require_bytes("Verify Direct3D device global", layout.device_reference_rva,
-                       BytePattern::exact(layout.device_reference));
+                       BytePattern::exact(device_reference));
     plan.redirect_call("Replace broken screenshot capture", layout.request_call_rva,
                        BytePattern::exact(layout.request_call), &ScreenshotFix::request_screenshot);
 }
@@ -76,7 +79,7 @@ std::expected<void, OutcomeReason> ScreenshotFix::prepare_runtime() {
         return std::unexpected(
             OutcomeReason{"The Direct3D device slot is outside the recognized game image", "Prepare screenshots", {}});
     }
-    return writer_.prepare(game_module_);
+    return writer_.prepare(image_.base);
 }
 
 void ScreenshotFix::enable_runtime() noexcept {

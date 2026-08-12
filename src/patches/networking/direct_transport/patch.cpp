@@ -1,6 +1,6 @@
 #include "patch.hpp"
 
-#include "../../categories.hpp"
+#include <FusionCutter/categories.hpp>
 #include "client/direct_transport.hpp"
 #include "server/direct_transport.hpp"
 #include "server/policy.hpp"

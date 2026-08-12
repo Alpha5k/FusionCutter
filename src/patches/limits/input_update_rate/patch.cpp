@@ -1,4 +1,4 @@
-#include "../../categories.hpp"
+#include <FusionCutter/categories.hpp>
 
 #include <FusionCutter/patch.hpp>
 

@@ -10,12 +10,12 @@
 
 namespace fusioncutter::patches::spectator_camera {
 
-// Smooths the paired network-object and camera translations used while spectating another player.
+// Smooths the spectated player while preserving the game's native spectator camera.
 class SpectatorCameraSmoothing final : public RuntimePatch {
   public:
     explicit SpectatorCameraSmoothing(const TargetContext& target) noexcept;
 
-    // Validates the spectator state and installs observation points around both native interpolators.
+    // Validate spectator state and install the object smoothing and camera confirmation points.
     void build_plan(PatchPlan& plan) override;
     void enable_runtime() noexcept override;
     void disable_runtime() noexcept override;
@@ -24,12 +24,11 @@ class SpectatorCameraSmoothing final : public RuntimePatch {
     using GetLocalIndex = int(__cdecl*)(int connection) noexcept;
     using GetSpectator = int(__cdecl*)(int local_index) noexcept;
 
-    // Maintain one coherent history for the currently spectated soldier and camera interpolator.
+    // Maintain one coherent object-motion history for the currently spectated soldier.
     void record_root(void* soldier, const float* matrix) noexcept;
     void record_object_publication(void* soldier, int object_index, const float* matrix) noexcept;
     void smooth_object_render(int object_index, float* matrix) noexcept;
-    void record_camera_publication(void* interpolator, void* camera, void* red_camera) noexcept;
-    void smooth_camera_render(void* interpolator, float* matrix) noexcept;
+    void record_camera_publication(void* camera) noexcept;
     void deactivate() noexcept;
     [[nodiscard]] bool is_actively_spectating(int& spectator_index) const noexcept;
 
@@ -38,7 +37,6 @@ class SpectatorCameraSmoothing final : public RuntimePatch {
     static void observe_object_publication(MidHookContext& context) noexcept;
     static void observe_object_render(MidHookContext& context) noexcept;
     static void observe_camera_publication(MidHookContext& context) noexcept;
-    static void observe_camera_render(MidHookContext& context) noexcept;
 
     const SpectatorCameraLayout& layout_;
     ImageContext image_;
@@ -51,7 +49,6 @@ class SpectatorCameraSmoothing final : public RuntimePatch {
     GetLocalIndex get_local_index_{};
     GetSpectator get_spectator_{};
     std::atomic<void*> active_soldier_{};
-    std::atomic<void*> active_interpolator_{};
     std::atomic<int> tracked_object_index_{-1};
     TransformSmoother smoother_;
     std::uint32_t owner_thread_id_{};

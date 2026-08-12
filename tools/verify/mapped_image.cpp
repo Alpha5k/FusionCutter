@@ -35,6 +35,8 @@ struct ImageFacts {
     std::uint32_t header_size;
     std::size_t section_table;
     std::uint16_t section_count;
+    std::uint32_t relocation_rva;
+    std::uint32_t relocation_size;
 };
 
 template <typename OptionalHeader>
@@ -55,12 +57,19 @@ template <typename OptionalHeader>
         return std::unexpected("PE section table offset overflows");
     }
 
+    IMAGE_DATA_DIRECTORY relocations{};
+    if (header->NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_BASERELOC) {
+        relocations = header->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
+    }
+
     return ImageFacts{
         static_cast<std::uintptr_t>(header->ImageBase),
         header->SizeOfImage,
         header->SizeOfHeaders,
         optional_header_offset + file_header.SizeOfOptionalHeader,
         file_header.NumberOfSections,
+        relocations.VirtualAddress,
+        relocations.Size,
     };
 }
 
@@ -156,10 +165,101 @@ template <typename OptionalHeader>
     return {};
 }
 
+[[nodiscard]] std::expected<std::vector<std::uint32_t>, std::string>
+read_relocation_rvas(std::span<const std::byte> image, const ImageFacts& facts) {
+    std::vector<std::uint32_t> result;
+    if (facts.relocation_rva == 0 || facts.relocation_size == 0) {
+        return result;
+    }
+
+    const auto directory_offset = static_cast<std::size_t>(facts.relocation_rva);
+    const auto directory_size = static_cast<std::size_t>(facts.relocation_size);
+    if (!contains(image, directory_offset, directory_size)) {
+        return std::unexpected("PE base relocation directory lies outside the mapped image");
+    }
+
+    result.reserve(directory_size / sizeof(std::uint16_t));
+    const auto directory_end = directory_offset + directory_size;
+    auto block_offset = directory_offset;
+    while (block_offset < directory_end) {
+        const auto block = read_value<IMAGE_BASE_RELOCATION>(image, block_offset);
+        if (!block.has_value() || block->SizeOfBlock < sizeof(IMAGE_BASE_RELOCATION) ||
+            block->SizeOfBlock > directory_end - block_offset) {
+            return std::unexpected("PE base relocation block is malformed");
+        }
+
+        const auto entry_bytes = block->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION);
+        if (entry_bytes % sizeof(std::uint16_t) != 0) {
+            return std::unexpected("PE base relocation entries are misaligned");
+        }
+
+        const auto entry_count = entry_bytes / sizeof(std::uint16_t);
+        const auto entries_offset = block_offset + sizeof(IMAGE_BASE_RELOCATION);
+        for (std::size_t index = 0; index < entry_count; ++index) {
+            const auto entry = read_value<std::uint16_t>(image, entries_offset + index * sizeof(std::uint16_t));
+            if (!entry.has_value()) {
+                return std::unexpected("PE base relocation entry lies outside the mapped image");
+            }
+
+            const auto type = static_cast<std::uint16_t>(*entry >> 12);
+            if (type == IMAGE_REL_BASED_ABSOLUTE) {
+                continue;
+            }
+            constexpr auto kExpectedType = sizeof(void*) == 4 ? IMAGE_REL_BASED_HIGHLOW : IMAGE_REL_BASED_DIR64;
+            if (type != kExpectedType) {
+                return std::unexpected("PE base relocation type is not supported by this verifier");
+            }
+
+            const auto page_offset = static_cast<std::uint32_t>(*entry & 0x0FFF);
+            if (block->VirtualAddress > std::numeric_limits<std::uint32_t>::max() - page_offset) {
+                return std::unexpected("PE base relocation RVA overflows");
+            }
+            const auto target_rva = block->VirtualAddress + page_offset;
+            if (!contains(image, target_rva, sizeof(std::uintptr_t))) {
+                return std::unexpected("PE base relocation target lies outside the mapped image");
+            }
+            result.push_back(target_rva);
+        }
+        block_offset += block->SizeOfBlock;
+    }
+    return result;
+}
+
+[[nodiscard]] std::expected<void*, std::string> allocate_image(const ImageFacts& facts) {
+    constexpr auto kProtection = PAGE_EXECUTE_READWRITE;
+    const bool relocatable = facts.relocation_rva != 0 && facts.relocation_size != 0;
+    if (!relocatable) {
+        auto* allocation = VirtualAlloc(reinterpret_cast<void*>(facts.preferred_base), facts.size,
+                                        MEM_RESERVE | MEM_COMMIT, kProtection);
+        if (allocation == nullptr) {
+            return std::unexpected("could not reserve a fixed-base image at its preferred address (Windows error " +
+                                   std::to_string(GetLastError()) + ")");
+        }
+        return allocation;
+    }
+
+    auto* preferred_reservation =
+        VirtualAlloc(reinterpret_cast<void*>(facts.preferred_base), facts.size, MEM_RESERVE, PAGE_NOACCESS);
+    auto* allocation = VirtualAlloc(nullptr, facts.size, MEM_RESERVE | MEM_COMMIT, kProtection);
+    const auto allocation_error = GetLastError();
+    if (preferred_reservation != nullptr) {
+        static_cast<void>(VirtualFree(preferred_reservation, 0, MEM_RELEASE));
+    }
+    if (allocation == nullptr) {
+        return std::unexpected("could not reserve private memory for the mapped image (Windows error " +
+                               std::to_string(allocation_error) + ")");
+    }
+    if (reinterpret_cast<std::uintptr_t>(allocation) == facts.preferred_base) {
+        static_cast<void>(VirtualFree(allocation, 0, MEM_RELEASE));
+        return std::unexpected("could not map a relocatable image away from its preferred base");
+    }
+    return allocation;
+}
+
 } // namespace
 
 MappedImage::MappedImage(void* allocation, std::size_t size, std::uintptr_t preferred_base) noexcept
-    : allocation_(allocation), size_(size), preferred_base_(preferred_base) {}
+    : allocation_(allocation), size_(size), preferred_base_(preferred_base), current_base_(preferred_base) {}
 
 void MappedImage::AllocationDeleter::operator()(void* allocation) const noexcept {
     if (allocation != nullptr) {
@@ -177,21 +277,20 @@ std::expected<MappedImage, std::string> MappedImage::load(const std::filesystem:
         return std::unexpected(std::move(facts.error()));
     }
 
-    auto* allocation = VirtualAlloc(reinterpret_cast<void*>(facts->preferred_base), facts->size,
-                                    MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-    if (allocation == nullptr) {
-        // Fixed-base x86 images can overlap the verifier's process heap, so validation supports a separate copy.
-        allocation = VirtualAlloc(nullptr, facts->size, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-    }
-    if (allocation == nullptr) {
-        return std::unexpected("could not reserve private memory for the mapped image (Windows error " +
-                               std::to_string(GetLastError()) + ")");
+    auto allocation = allocate_image(*facts);
+    if (!allocation.has_value()) {
+        return std::unexpected(std::move(allocation.error()));
     }
 
-    MappedImage mapped(allocation, facts->size, facts->preferred_base);
+    MappedImage mapped(*allocation, facts->size, facts->preferred_base);
     if (auto result = map_sections(*file, *facts, mapped.bytes()); !result.has_value()) {
         return std::unexpected(std::move(result.error()));
     }
+    auto relocations = read_relocation_rvas(mapped.bytes(), *facts);
+    if (!relocations.has_value()) {
+        return std::unexpected(std::move(relocations.error()));
+    }
+    mapped.relocation_rvas_ = std::move(*relocations);
     return mapped;
 }
 
@@ -205,6 +304,29 @@ std::uintptr_t MappedImage::preferred_base() const noexcept {
 
 std::span<std::byte> MappedImage::bytes() noexcept {
     return {static_cast<std::byte*>(allocation_.get()), size_};
+}
+
+std::expected<void, std::string> MappedImage::relocate_to(std::uintptr_t base) {
+    if (base == 0) {
+        return std::unexpected("PE relocation target base is invalid");
+    }
+    if (base == current_base_) {
+        return {};
+    }
+
+    for (const auto rva : relocation_rvas_) {
+        auto* target = bytes().data() + rva;
+        std::uintptr_t value{};
+        std::memcpy(&value, target, sizeof(value));
+        if (base > current_base_) {
+            value += base - current_base_;
+        } else {
+            value -= current_base_ - base;
+        }
+        std::memcpy(target, &value, sizeof(value));
+    }
+    current_base_ = base;
+    return {};
 }
 
 } // namespace fusioncutter::verify

@@ -7,6 +7,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace fusioncutter::verify {
 
@@ -23,6 +24,7 @@ class MappedImage {
     [[nodiscard]] std::uintptr_t base() const noexcept;
     [[nodiscard]] std::uintptr_t preferred_base() const noexcept;
     [[nodiscard]] std::span<std::byte> bytes() noexcept;
+    [[nodiscard]] std::expected<void, std::string> relocate_to(std::uintptr_t base);
 
   private:
     struct AllocationDeleter {
@@ -34,6 +36,8 @@ class MappedImage {
     std::unique_ptr<void, AllocationDeleter> allocation_;
     std::size_t size_{};
     std::uintptr_t preferred_base_{};
+    std::uintptr_t current_base_{};
+    std::vector<std::uint32_t> relocation_rvas_;
 };
 
 } // namespace fusioncutter::verify

@@ -32,7 +32,7 @@ class ScreenshotFix final : public RuntimePatch {
     // Receives the redirected Print Screen request through the active patch instance.
     static void __cdecl request_screenshot() noexcept;
 
-    std::uintptr_t game_module_{};
+    ImageContext image_;
     IDirect3DDevice9* const* device_slot_{};
     TargetLayout target_{};
     ScreenshotWriter writer_;

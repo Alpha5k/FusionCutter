@@ -1,6 +1,6 @@
 #include "patch.hpp"
 
-#include "../../categories.hpp"
+#include <FusionCutter/categories.hpp>
 #include "update_recovery.hpp"
 
 namespace fusioncutter::patches::update_recovery {

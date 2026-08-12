@@ -87,15 +87,15 @@ validate_original_dependencies(std::span<const std::byte> image, std::span<const
     return {};
 }
 
-[[nodiscard]] bool same_dependency(const CriticalDependency& logical, const CriticalDependency& physical) noexcept {
+[[nodiscard]] bool same_dependency_shape(const CriticalDependency& logical,
+                                         const CriticalDependency& physical) noexcept {
     return logical.operation == physical.operation && logical.rva == physical.rva &&
            logical.expected.bytes.size() == physical.expected.bytes.size() &&
            logical.expected.mask == physical.expected.mask;
 }
 
-[[nodiscard]] std::expected<void, std::string> relocate_dependencies(std::span<std::byte> image,
-                                                                     std::span<const CriticalDependency> logical,
-                                                                     std::span<const CriticalDependency> physical) {
+[[nodiscard]] std::expected<void, std::string>
+validate_dependency_shapes(std::span<const CriticalDependency> logical, std::span<const CriticalDependency> physical) {
     if (logical.size() != physical.size()) {
         return std::unexpected("patch plan changed when mapped away from the PE preferred base");
     }
@@ -103,23 +103,9 @@ validate_original_dependencies(std::span<const std::byte> image, std::span<const
     for (std::size_t dependency_index = 0; dependency_index < logical.size(); ++dependency_index) {
         const auto& original = logical[dependency_index];
         const auto& relocated = physical[dependency_index];
-        if (!same_dependency(original, relocated)) {
+        if (!same_dependency_shape(original, relocated)) {
             return std::unexpected(original.operation +
                                    ": patch plan changed when mapped away from the PE preferred base");
-        }
-
-        const auto offset = static_cast<std::size_t>(relocated.rva);
-        if (offset > image.size() || relocated.expected.bytes.size() > image.size() - offset) {
-            return std::unexpected(relocated.operation + ": target preimage lies outside the mapped image");
-        }
-    }
-
-    for (const auto& relocated : physical) {
-        const auto offset = static_cast<std::size_t>(relocated.rva);
-        for (std::size_t byte_index = 0; byte_index < relocated.expected.bytes.size(); ++byte_index) {
-            const auto mask = relocated.expected.mask.empty() ? std::byte{0xFF} : relocated.expected.mask[byte_index];
-            auto& target = image[offset + byte_index];
-            target = (target & ~mask) | (relocated.expected.bytes[byte_index] & mask);
         }
     }
     return {};
@@ -175,11 +161,34 @@ verify_relocated_plan(const catalog::CatalogEntry& entry, const PatchVariant& va
 }
 
 [[nodiscard]] std::expected<std::optional<VerifiedPlan>, std::string>
+verify_physical_variant(const catalog::CatalogEntry& entry, const PatchVariant& variant,
+                        const TargetContext& physical_target, std::span<std::byte> image,
+                        std::span<const CriticalDependency> logical_dependencies) {
+    auto physical_candidate = build_candidate(entry, variant, physical_target);
+    if (!physical_candidate.has_value()) {
+        return std::unexpected(std::move(physical_candidate.error()));
+    }
+    if (!physical_candidate->has_value()) {
+        return std::unexpected("patch no longer has a plan when mapped away from the PE preferred base");
+    }
+
+    const auto& physical_dependencies = (*physical_candidate)->dependencies;
+    if (auto shapes = validate_dependency_shapes(logical_dependencies, physical_dependencies); !shapes.has_value()) {
+        return std::unexpected(std::move(shapes.error()));
+    }
+    if (auto verified = verify_relocated_plan(entry, variant, physical_target, image, **physical_candidate);
+        !verified.has_value()) {
+        return std::unexpected(std::move(verified.error()));
+    }
+    return VerifiedPlan{entry.id, variant.role, physical_dependencies.size()};
+}
+
+[[nodiscard]] std::expected<std::optional<VerifiedPlan>, std::string>
 verify_variant(const catalog::CatalogEntry& entry, const PatchVariant& variant, const TargetContext& physical_target,
-               std::uintptr_t preferred_base, std::span<std::byte> image) {
-    // Prove the untouched file at its preferred base before adapting base-dependent proofs to the private copy.
+               MappedImage& image) {
+    // Prove the untouched file at its preferred base before applying its native relocation table to the private copy.
     auto logical_target = physical_target;
-    logical_target.image.base = preferred_base;
+    logical_target.image.base = image.preferred_base();
     auto logical_candidate = build_candidate(entry, variant, logical_target);
     if (!logical_candidate.has_value()) {
         return std::unexpected(std::move(logical_candidate.error()));
@@ -188,29 +197,18 @@ verify_variant(const catalog::CatalogEntry& entry, const PatchVariant& variant, 
         return std::nullopt;
     }
     const auto& logical = (*logical_candidate)->dependencies;
-    if (auto original = validate_original_dependencies(image, logical); !original.has_value()) {
+    if (auto original = validate_original_dependencies(image.bytes(), logical); !original.has_value()) {
         return std::unexpected(std::move(original.error()));
     }
 
-    auto physical_candidate = build_candidate(entry, variant, physical_target);
-    if (!physical_candidate.has_value()) {
-        return std::unexpected(std::move(physical_candidate.error()));
-    }
-    if (!physical_candidate->has_value()) {
-        return std::unexpected("patch no longer has a plan when mapped away from the PE preferred base");
-    }
-    const auto& physical = (*physical_candidate)->dependencies;
-    if (auto relocated = relocate_dependencies(image, logical, physical); !relocated.has_value()) {
+    if (auto relocated = image.relocate_to(image.base()); !relocated.has_value()) {
         return std::unexpected(std::move(relocated.error()));
     }
-    auto verified = verify_relocated_plan(entry, variant, physical_target, image, **physical_candidate);
-    if (auto restored = relocate_dependencies(image, physical, logical); !restored.has_value()) {
+    auto verified = verify_physical_variant(entry, variant, physical_target, image.bytes(), logical);
+    if (auto restored = image.relocate_to(image.preferred_base()); !restored.has_value()) {
         return std::unexpected("could not restore the verifier image: " + restored.error());
     }
-    if (!verified.has_value()) {
-        return std::unexpected(std::move(verified.error()));
-    }
-    return VerifiedPlan{entry.id, variant.role, physical.size()};
+    return verified;
 }
 
 } // namespace
@@ -239,7 +237,7 @@ std::expected<VerifiedImage, std::string> verify_supported_image(const std::file
 
             auto target = recognized->context;
             target.role = variant.role;
-            auto verified = verify_variant(entry, variant, target, image.preferred_base(), image.bytes());
+            auto verified = verify_variant(entry, variant, target, image);
             if (!verified.has_value()) {
                 return std::unexpected(std::string{entry.id} + ": " + verified.error());
             }

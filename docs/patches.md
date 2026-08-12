@@ -80,8 +80,7 @@ For a small patch, `patch.cpp` contains three ideas:
 Here is a complete but fictional one-file patch:
 
 ```cpp
-#include "../../categories.hpp"
-
+#include <FusionCutter/categories.hpp>
 #include <FusionCutter/patch.hpp>
 
 namespace fusioncutter::patches::example_fix {

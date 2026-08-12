@@ -6,6 +6,7 @@ fc_generate_patch_catalog(
 )
 
 add_library(fusioncutter_catalog STATIC
+    "${FC_SOURCE_ROOT}/include/FusionCutter/categories.hpp"
     "${FC_SOURCE_ROOT}/include/FusionCutter/outcome.hpp"
     "${FC_SOURCE_ROOT}/include/FusionCutter/patch.hpp"
     "${FC_SOURCE_ROOT}/include/FusionCutter/templates/patch.hpp"

@@ -7,45 +7,40 @@
 #include <limits>
 
 namespace fusioncutter::patches::spectator_camera {
+namespace {
+
+constexpr std::uint8_t kCompletePublicationSet = 3U;
+
+} // namespace
 
 HistoryUpdate TransformSmoother::publish_object(void* owner, std::int32_t turn, const float* matrix) noexcept {
-    return publish(TransformPath::Object, owner, turn, matrix);
+    return publish(Publication::Object, owner, turn, matrix);
 }
 
-HistoryUpdate TransformSmoother::publish_camera(void* owner, std::int32_t turn, const float* matrix) noexcept {
-    return publish(TransformPath::Camera, owner, turn, matrix);
+HistoryUpdate TransformSmoother::confirm_camera(void* owner, std::int32_t turn) noexcept {
+    return publish(Publication::CameraConfirmation, owner, turn, nullptr);
 }
 
-SmoothingResult TransformSmoother::smooth(TransformPath path, float ratio, float* matrix) const noexcept {
-    if (matrix == nullptr || !std::isfinite(ratio) || ratio < 0.0F || ratio > 1.0F) {
-        return SmoothingResult::Invalid;
-    }
-    if (count_ < frames_.size() || age_ <= frames_.size()) {
-        return SmoothingResult::HistoryWarmup;
-    }
-
+SmoothingResult TransformSmoother::smooth_object(float ratio, float* matrix) const noexcept {
     Position native{};
     if (!read_position(native, matrix)) {
         return SmoothingResult::Invalid;
     }
 
-    const auto& first = position(frames_[0], path);
-    const auto& second = position(frames_[1], path);
-    const auto& third = position(frames_[2], path);
-    const auto& fourth = position(frames_[3], path);
-    const auto expected = interpolate(third, fourth, ratio);
-    if (distance_squared(expected, native) > kPhaseTolerance * kPhaseTolerance) {
+    TranslationCorrection correction{};
+    const auto result = calculate_correction(ratio, correction);
+    if (result == SmoothingResult::Invalid || result == SmoothingResult::HistoryWarmup) {
+        return result;
+    }
+
+    const float phase_error_squared = distance_squared(correction.expected_position, native);
+    if (phase_error_squared > kPhaseTolerance * kPhaseTolerance) {
         return SmoothingResult::PhaseMismatch;
     }
 
-    const auto start = weighted_average(first, second, third);
-    const auto end = weighted_average(second, third, fourth);
-    const auto candidate = interpolate(start, end, ratio);
-    const auto ramp_age = static_cast<float>(age_ - frames_.size() - 1U) + ratio;
-    const float ramp = (std::min)(1.0F, ramp_age / static_cast<float>(kRampTurns));
-    const float weight = ramp * ramp * (3.0F - 2.0F * ramp);
-    write_position(interpolate(native, candidate, weight), matrix);
-    return weight < 1.0F ? SmoothingResult::Ramping : SmoothingResult::Smoothed;
+    apply_translation(native, correction.translation);
+    write_position(native, matrix);
+    return result;
 }
 
 void TransformSmoother::reset() noexcept {
@@ -56,18 +51,10 @@ void TransformSmoother::reset() noexcept {
     age_ = 0;
 }
 
-bool TransformSmoother::ready(void* owner) const noexcept {
-    return owner != nullptr && owner_ == owner && count_ == frames_.size() && age_ > frames_.size();
-}
-
-std::size_t TransformSmoother::count() const noexcept {
-    return count_;
-}
-
-HistoryUpdate TransformSmoother::publish(TransformPath path, void* owner, std::int32_t turn,
+HistoryUpdate TransformSmoother::publish(Publication publication, void* owner, std::int32_t turn,
                                          const float* matrix) noexcept {
     Position sample{};
-    if (owner == nullptr || turn < 0 || !read_position(sample, matrix)) {
+    if (owner == nullptr || turn < 0 || (publication == Publication::Object && !read_position(sample, matrix))) {
         return HistoryUpdate::Invalid;
     }
 
@@ -79,8 +66,12 @@ HistoryUpdate TransformSmoother::publish(TransformPath path, void* owner, std::i
     }
 
     if (count_ != 0 && turn == frames_[count_ - 1].turn) {
-        position(frames_[count_ - 1], path) = sample;
-        if (count_ > 1 && discontinuous(position(frames_[count_ - 2], path), sample)) {
+        if (publication == Publication::CameraConfirmation) {
+            return HistoryUpdate::Replaced;
+        }
+
+        frames_[count_ - 1].position = sample;
+        if (count_ > 1 && discontinuous(frames_[count_ - 2].position, sample)) {
             const auto latest = frames_[count_ - 1];
             frames_ = {};
             frames_.front() = latest;
@@ -92,7 +83,7 @@ HistoryUpdate TransformSmoother::publish(TransformPath path, void* owner, std::i
         return HistoryUpdate::Replaced;
     }
 
-    if (pending_.paths != 0) {
+    if (pending_.publications != 0) {
         if (turn != pending_.turn) {
             if (is_older(turn, pending_.turn)) {
                 return HistoryUpdate::Stale;
@@ -112,11 +103,13 @@ HistoryUpdate TransformSmoother::publish(TransformPath path, void* owner, std::i
         begin_pending(turn);
     }
 
-    const auto mask = path_mask(path);
-    const bool replaced = (pending_.paths & mask) != 0;
-    position(pending_, path) = sample;
-    pending_.paths = static_cast<std::uint8_t>(pending_.paths | mask);
-    if (pending_.paths != 3U) {
+    const auto mask = publication_mask(publication);
+    const bool replaced = (pending_.publications & mask) != 0;
+    if (publication == Publication::Object) {
+        pending_.position = sample;
+    }
+    pending_.publications = static_cast<std::uint8_t>(pending_.publications | mask);
+    if (pending_.publications != kCompletePublicationSet) {
         return replaced ? HistoryUpdate::Replaced : result;
     }
 
@@ -133,11 +126,10 @@ void TransformSmoother::begin_pending(std::int32_t turn) noexcept {
 }
 
 HistoryUpdate TransformSmoother::commit_pending() noexcept {
-    const Frame frame{pending_.object, pending_.camera, pending_.turn};
+    const Frame frame{pending_.position, pending_.turn};
     pending_ = {};
-    if (count_ != 0 &&
-        (!is_next(frames_[count_ - 1].turn, frame.turn) || discontinuous(frames_[count_ - 1].object, frame.object) ||
-         discontinuous(frames_[count_ - 1].camera, frame.camera))) {
+    if (count_ != 0 && (!is_next(frames_[count_ - 1].turn, frame.turn) ||
+                        discontinuous(frames_[count_ - 1].position, frame.position))) {
         frames_ = {};
         frames_.front() = frame;
         count_ = 1;
@@ -164,16 +156,34 @@ void TransformSmoother::clear_history() noexcept {
     age_ = 0;
 }
 
-constexpr std::uint8_t TransformSmoother::path_mask(TransformPath path) noexcept {
-    return path == TransformPath::Object ? 1U : 2U;
+SmoothingResult TransformSmoother::calculate_correction(float ratio, TranslationCorrection& output) const noexcept {
+    if (!std::isfinite(ratio) || ratio < 0.0F || ratio > 1.0F) {
+        return SmoothingResult::Invalid;
+    }
+    if (count_ < frames_.size() || age_ <= frames_.size()) {
+        return SmoothingResult::HistoryWarmup;
+    }
+
+    const auto& first = frames_[0].position;
+    const auto& second = frames_[1].position;
+    const auto& third = frames_[2].position;
+    const auto& fourth = frames_[3].position;
+    output.expected_position = interpolate(third, fourth, ratio);
+    const auto start = weighted_average(first, second, third);
+    const auto end = weighted_average(second, third, fourth);
+    const auto candidate_position = interpolate(start, end, ratio);
+
+    const auto ramp_age = static_cast<float>(age_ - frames_.size() - 1U) + ratio;
+    const float ramp = (std::min)(1.0F, ramp_age / static_cast<float>(kRampTurns));
+    output.blend_weight = ramp * ramp * (3.0F - 2.0F * ramp);
+    for (std::size_t axis = 0; axis < output.translation.size(); ++axis) {
+        output.translation[axis] = (candidate_position[axis] - output.expected_position[axis]) * output.blend_weight;
+    }
+    return output.blend_weight < 1.0F ? SmoothingResult::Ramping : SmoothingResult::Smoothed;
 }
 
-TransformSmoother::Position& TransformSmoother::position(Frame& frame, TransformPath path) noexcept {
-    return path == TransformPath::Object ? frame.object : frame.camera;
-}
-
-const TransformSmoother::Position& TransformSmoother::position(const Frame& frame, TransformPath path) noexcept {
-    return path == TransformPath::Object ? frame.object : frame.camera;
+constexpr std::uint8_t TransformSmoother::publication_mask(Publication publication) noexcept {
+    return publication == Publication::Object ? 1U : 2U;
 }
 
 bool TransformSmoother::is_next(std::int32_t previous, std::int32_t current) noexcept {
@@ -201,6 +211,12 @@ bool TransformSmoother::read_position(Position& output, const float* matrix) noe
 void TransformSmoother::write_position(const Position& position, float* matrix) noexcept {
     for (std::size_t axis = 0; axis < position.size(); ++axis) {
         matrix[12 + axis] = position[axis];
+    }
+}
+
+void TransformSmoother::apply_translation(Position& position, const Position& translation) noexcept {
+    for (std::size_t axis = 0; axis < position.size(); ++axis) {
+        position[axis] += translation[axis];
     }
 }
 

@@ -1,6 +1,6 @@
 #include "patch.hpp"
 
-#include "../../categories.hpp"
+#include <FusionCutter/categories.hpp>
 #include "screenshot_fix.hpp"
 
 namespace fusioncutter::patches::screenshot_fix {

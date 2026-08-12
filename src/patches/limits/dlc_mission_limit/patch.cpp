@@ -1,6 +1,6 @@
 #include "patch.hpp"
 
-#include "../../categories.hpp"
+#include <FusionCutter/categories.hpp>
 #include "dlc_mission_limit.hpp"
 
 namespace fusioncutter::patches::dlc_mission_limit {

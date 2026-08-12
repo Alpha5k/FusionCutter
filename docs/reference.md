@@ -99,7 +99,7 @@ struct PatchDefinition {
 | `includes` | Companion patch IDs automatically selected with this patch; explicit disable wins. |
 | `variants` | Supported layout, role, image, timing, implementation, and failure-policy combinations. |
 
-Current shared categories from `src/patches/categories.hpp` are:
+Current shared categories from `<FusionCutter/categories.hpp>` are:
 
 | Constant | Display name | Order |
 |---|---|---|

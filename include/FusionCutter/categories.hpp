@@ -1,6 +1,6 @@
 #pragma once
 
-#include <FusionCutter/patch.hpp>
+#include "patch.hpp"
 
 namespace fusioncutter::categories {
 

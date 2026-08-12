@@ -12,9 +12,8 @@ constexpr std::size_t kNetGameConnectionOffset = 0x50;
 constexpr std::size_t kSpectatorObjectIndexOffset = 0x21C;
 // The root hook receives EntitySoldier's embedded controllable subobject.
 constexpr std::size_t kSpectatorControllableOffset = 0x258;
-// Camera publication exposes the adjusted target and completed RedCamera matrix at these fields.
+// Camera publication exposes the adjusted spectator target at this field.
 constexpr std::size_t kCameraAdjustedTargetOffset = 0x0C;
-constexpr std::size_t kRedCameraMatrixOffset = 0x30;
 constexpr std::size_t kRenderedObjectIndexOffset = 0x188;
 constexpr std::size_t kObjectMatrixLocalOffset = 0xA0;
 constexpr int kMaximumObjectIndex = 64;
@@ -46,10 +45,8 @@ void SpectatorCameraSmoothing::build_plan(PatchPlan& plan) {
                   layout_.hooks.object_publication.pattern(), &SpectatorCameraSmoothing::observe_object_publication);
     plan.mid_hook("Smooth the rendered spectator object", layout_.hooks.object_render_capture.rva,
                   layout_.hooks.object_render_capture.pattern(), &SpectatorCameraSmoothing::observe_object_render);
-    plan.mid_hook("Record spectator camera updates", layout_.hooks.camera_publication.rva,
+    plan.mid_hook("Confirm spectator camera updates", layout_.hooks.camera_publication.rva,
                   layout_.hooks.camera_publication.pattern(), &SpectatorCameraSmoothing::observe_camera_publication);
-    plan.mid_hook("Smooth the rendered spectator camera", layout_.hooks.camera_render.rva,
-                  layout_.hooks.camera_render.pattern(), &SpectatorCameraSmoothing::observe_camera_render);
 }
 
 void SpectatorCameraSmoothing::enable_runtime() noexcept {
@@ -63,8 +60,13 @@ void SpectatorCameraSmoothing::disable_runtime() noexcept {
 }
 
 void SpectatorCameraSmoothing::record_root(void* soldier, const float* matrix) noexcept {
+    if (soldier == nullptr || matrix == nullptr) {
+        deactivate();
+        return;
+    }
+
     int spectator_index{};
-    if (soldier == nullptr || matrix == nullptr || !is_actively_spectating(spectator_index)) {
+    if (!is_actively_spectating(spectator_index)) {
         deactivate();
         return;
     }
@@ -77,10 +79,10 @@ void SpectatorCameraSmoothing::record_root(void* soldier, const float* matrix) n
     }
 
     const auto* previous = active_soldier_.load(std::memory_order_acquire);
-    if (previous != soldier || active_spectator_index_ != spectator_index ||
-        (owner_thread_id_ != 0 && owner_thread_id_ != thread_id)) {
+    const bool thread_changed = owner_thread_id_ != 0 && owner_thread_id_ != thread_id;
+    const bool target_changed = previous != soldier || active_spectator_index_ != spectator_index;
+    if (target_changed || thread_changed) {
         smoother_.reset();
-        active_interpolator_.store(nullptr, std::memory_order_release);
         active_soldier_.store(soldier, std::memory_order_release);
         owner_thread_id_ = thread_id;
     }
@@ -102,49 +104,25 @@ void SpectatorCameraSmoothing::record_object_publication(void* soldier, int obje
 void SpectatorCameraSmoothing::smooth_object_render(int object_index, float* matrix) noexcept {
     if (matrix == nullptr || !valid_object_index(object_index) ||
         object_index != tracked_object_index_.load(std::memory_order_acquire) ||
-        owner_thread_id_ != GetCurrentThreadId()) {
+        owner_thread_id_ != GetCurrentThreadId() || active_soldier_.load(std::memory_order_acquire) == nullptr) {
         return;
     }
 
-    if (active_soldier_.load(std::memory_order_acquire) == nullptr) {
-        return;
-    }
-    if (smoother_.smooth(TransformPath::Object, *turn_ratio_, matrix) == SmoothingResult::PhaseMismatch) {
+    if (smoother_.smooth_object(*turn_ratio_, matrix) == SmoothingResult::PhaseMismatch) {
         smoother_.reset();
-        active_interpolator_.store(nullptr, std::memory_order_release);
     }
 }
 
-void SpectatorCameraSmoothing::record_camera_publication(void* interpolator, void* camera, void* red_camera) noexcept {
-    if (interpolator == nullptr || camera == nullptr || red_camera == nullptr) {
+void SpectatorCameraSmoothing::record_camera_publication(void* camera) noexcept {
+    void* const soldier = active_soldier_.load(std::memory_order_acquire);
+    if (soldier == nullptr || camera == nullptr || owner_thread_id_ != GetCurrentThreadId()) {
         return;
     }
 
-    void* const soldier = active_soldier_.load(std::memory_order_acquire);
     void* const adjusted_target = read_native_field<void*>(camera, kCameraAdjustedTargetOffset);
-    void* const expected_target =
-        soldier == nullptr ? nullptr : static_cast<std::byte*>(soldier) + kSpectatorControllableOffset;
-    if (soldier == nullptr || adjusted_target != expected_target || owner_thread_id_ != GetCurrentThreadId()) {
-        return;
-    }
-
-    const auto* matrix =
-        reinterpret_cast<const float*>(static_cast<const std::byte*>(red_camera) + kRedCameraMatrixOffset);
-    active_interpolator_.store(interpolator, std::memory_order_release);
-    static_cast<void>(smoother_.publish_camera(soldier, *update_turn_, matrix));
-}
-
-void SpectatorCameraSmoothing::smooth_camera_render(void* interpolator, float* matrix) noexcept {
-    void* const soldier = active_soldier_.load(std::memory_order_acquire);
-    if (interpolator == nullptr || matrix == nullptr ||
-        active_interpolator_.load(std::memory_order_acquire) != interpolator ||
-        owner_thread_id_ != GetCurrentThreadId() || !smoother_.ready(soldier)) {
-        return;
-    }
-
-    if (smoother_.smooth(TransformPath::Camera, *turn_ratio_, matrix) == SmoothingResult::PhaseMismatch) {
-        smoother_.reset();
-        active_interpolator_.store(nullptr, std::memory_order_release);
+    void* const expected_target = static_cast<std::byte*>(soldier) + kSpectatorControllableOffset;
+    if (adjusted_target == expected_target) {
+        static_cast<void>(smoother_.confirm_camera(soldier, *update_turn_));
     }
 }
 
@@ -153,7 +131,6 @@ void SpectatorCameraSmoothing::deactivate() noexcept {
         return;
     }
     active_soldier_.store(nullptr, std::memory_order_release);
-    active_interpolator_.store(nullptr, std::memory_order_release);
     tracked_object_index_.store(-1, std::memory_order_release);
     smoother_.reset();
     owner_thread_id_ = 0;
@@ -216,18 +193,7 @@ void SpectatorCameraSmoothing::observe_camera_publication(MidHookContext& contex
     }
 
     const auto* stack = reinterpret_cast<const void*>(context.esp);
-    patch->record_camera_publication(reinterpret_cast<void*>(context.ecx), read_native_field<void*>(stack),
-                                     read_native_field<void*>(stack, sizeof(void*)));
-}
-
-void SpectatorCameraSmoothing::observe_camera_render(MidHookContext& context) noexcept {
-    auto* patch = active_.read();
-    if (patch == nullptr || context.esp == 0) {
-        return;
-    }
-
-    patch->smooth_camera_render(reinterpret_cast<void*>(context.esi),
-                                read_native_field<float*>(reinterpret_cast<const void*>(context.esp)));
+    patch->record_camera_publication(read_native_field<void*>(stack));
 }
 
 } // namespace fusioncutter::patches::spectator_camera

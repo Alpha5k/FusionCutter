@@ -11,11 +11,12 @@ void add_norender_fix(PatchPlan& plan) {
 }
 
 // Passes the populated `/password` global to the native password setter instead of reading dedicated defaults.
-void add_password_fix(PatchPlan& plan) {
+void add_password_fix(PatchPlan& plan, const ImageContext& image) {
     plan.checked_write("Bypass dedicated-defaults password read", layout::kPasswordRva,
                        BytePattern::exact(layout::kPasswordPrefixPreimage), layout::kPasswordPrefixReplacement);
-    plan.checked_write("Use /password command-line value", layout::kPasswordPointerRva,
-                       BytePattern::exact(layout::kPasswordPointerPreimage),
+    const auto dedicated_defaults_password =
+        static_cast<std::uint32_t>(image.address_at_rva(layout::kDedicatedDefaultsPasswordRva));
+    plan.checked_write("Use /password command-line value", layout::kPasswordPointerRva, dedicated_defaults_password,
                        PatchAddress::image_rva(layout::kPlaintextPasswordRva));
     plan.nop("Remove local password reference", layout::kPasswordSuffixRva,
              BytePattern::exact(layout::kPasswordSuffixPreimage));
@@ -33,7 +34,7 @@ void add_query_metadata_fixes(PatchPlan& plan) {
 
 void GogServerFixes::build_plan(PatchPlan& plan) {
     add_norender_fix(plan);
-    add_password_fix(plan);
+    add_password_fix(plan, image_);
     add_query_metadata_fixes(plan);
 }
 

@@ -1,6 +1,6 @@
 #include "patch.hpp"
 
-#include "../../categories.hpp"
+#include <FusionCutter/categories.hpp>
 #include "weapon_swap.hpp"
 
 namespace fusioncutter::patches::weapon_swap_replay {

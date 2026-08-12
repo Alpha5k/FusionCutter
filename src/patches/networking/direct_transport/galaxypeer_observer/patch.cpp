@@ -1,6 +1,6 @@
 #include "observer.hpp"
 
-#include "../../../categories.hpp"
+#include <FusionCutter/categories.hpp>
 
 #include <array>
 

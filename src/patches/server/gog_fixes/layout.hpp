@@ -17,9 +17,9 @@ inline constexpr auto kPasswordPrefixPreimage =
 inline constexpr auto kPasswordPrefixReplacement =
     byte_array<0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x8D, 0x05>();
 inline constexpr std::uint32_t kPasswordPointerRva = kPasswordRva + kPasswordPrefixPreimage.size();
-inline constexpr auto kPasswordPointerPreimage = byte_array<0xF8, 0xA3, 0x7A, 0x00>();
+inline constexpr std::uint32_t kDedicatedDefaultsPasswordRva = 0x003AA3F8;
 inline constexpr std::uint32_t kPlaintextPasswordRva = 0x01A31C40;
-inline constexpr std::uint32_t kPasswordSuffixRva = kPasswordPointerRva + kPasswordPointerPreimage.size();
+inline constexpr std::uint32_t kPasswordSuffixRva = kPasswordPointerRva + sizeof(std::uint32_t);
 inline constexpr auto kPasswordSuffixPreimage =
     byte_array<0xE8, 0xA4, 0x87, 0x00, 0x00, 0x8D, 0x85, 0x54, 0xFF, 0xFF, 0xFF>();
 

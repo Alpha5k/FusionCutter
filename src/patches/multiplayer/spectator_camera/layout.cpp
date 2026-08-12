@@ -16,20 +16,14 @@ constexpr auto kObjectPublicationArguments = byte_array<0x50, 0xFF, 0xB7, 0x1C, 
 constexpr auto kObjectRenderArguments =
     byte_array<0x8D, 0x84, 0x24, 0xA0, 0x00, 0x00, 0x00, 0x50, 0xFF, 0xB7, 0x88, 0x01, 0x00, 0x00>();
 constexpr auto kObjectRenderCapture = byte_array<0x8D, 0x84, 0x24, 0x84, 0x01, 0x00, 0x00>();
-constexpr auto kCameraInterpolatorOwner =
-    byte_array<0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF0, 0x81, 0xEC, 0x0C, 0x01, 0x00, 0x00, 0x56, 0x8B, 0xF1>();
-constexpr auto kCameraRenderArguments =
-    byte_array<0x8D, 0x84, 0x24, 0xB0, 0x00, 0x00, 0x00, 0x8B, 0x8E, 0xA0, 0x00, 0x00, 0x00, 0xF3, 0x0F, 0x11, 0x84,
-               0x24, 0xE0, 0x00, 0x00, 0x00, 0xF3, 0x0F, 0x10, 0x44, 0x24, 0x08, 0xF3, 0x0F, 0x11, 0x84, 0x24, 0xE4,
-               0x00, 0x00, 0x00, 0xF3, 0x0F, 0x10, 0x44, 0x24, 0x0C, 0x50>();
+constexpr auto kCameraPublicationArguments =
+    byte_array<0x8B, 0x46, 0x50, 0x69, 0xC8, 0xB0, 0x00, 0x00, 0x00, 0xFF, 0x74, 0x86, 0x24, 0xFF, 0x74, 0x86, 0x20>();
 
 constexpr auto kSteamObjectPublicationCall = byte_array<0xE8, 0xB4, 0x05, 0x05, 0x00>();
 constexpr auto kGogObjectPublicationCall = byte_array<0xE8, 0x24, 0x13, 0x05, 0x00>();
 constexpr auto kSteamObjectRenderCall = byte_array<0xE8, 0x54, 0x4B, 0x05, 0x00>();
 constexpr auto kGogObjectRenderCall = byte_array<0xE8, 0xC4, 0x58, 0x05, 0x00>();
 constexpr auto kCameraPublicationCall = byte_array<0xE8, 0x34, 0x05, 0x00, 0x00>();
-constexpr auto kSteamCameraRenderCall = byte_array<0xE8, 0x60, 0xC6, 0x27, 0x00>();
-constexpr auto kGogCameraRenderCall = byte_array<0xE8, 0x20, 0xD7, 0x27, 0x00>();
 
 constexpr SpectatorCameraLayout kSteamLayout{
     .hooks =
@@ -39,7 +33,6 @@ constexpr SpectatorCameraLayout kSteamLayout{
             .object_render_call = {.rva = 0x000E2907, .expected = kSteamObjectRenderCall},
             .object_render_capture = {.rva = 0x000E290C, .expected = kObjectRenderCapture},
             .camera_publication = {.rva = 0x0004F377, .expected = kCameraPublicationCall},
-            .camera_render = {.rva = 0x0004F88B, .expected = kSteamCameraRenderCall},
         },
     .contexts =
         {
@@ -47,12 +40,7 @@ constexpr SpectatorCameraLayout kSteamLayout{
             .root_matrix_call = {.rva = 0x000F22AC, .expected = kRootMatrixCall},
             .object_publication_arguments = {.rva = 0x000E6E3B, .expected = kObjectPublicationArguments},
             .object_render_arguments = {.rva = 0x000E28F9, .expected = kObjectRenderArguments},
-            .camera_publication_arguments =
-                {.rva = 0x0004F360,
-                 .expected = byte_array<0x8B, 0x46, 0x50, 0x69, 0xC8, 0xB0, 0x00, 0x00, 0x00, 0xFF, 0x74, 0x86, 0x24,
-                                        0xFF, 0x74, 0x86, 0x20, 0x81, 0xC1, 0xD0, 0x0F, 0xEB, 0x01>()},
-            .camera_interpolator_owner = {.rva = 0x0004F6E0, .expected = kCameraInterpolatorOwner},
-            .camera_render_arguments = {.rva = 0x0004F84B, .expected = kCameraRenderArguments},
+            .camera_publication_arguments = {.rva = 0x0004F360, .expected = kCameraPublicationArguments},
         },
     .state =
         {
@@ -79,7 +67,6 @@ constexpr SpectatorCameraLayout kGogLayout{
             .object_render_call = {.rva = 0x000E2907, .expected = kGogObjectRenderCall},
             .object_render_capture = {.rva = 0x000E290C, .expected = kObjectRenderCapture},
             .camera_publication = {.rva = 0x0004F357, .expected = kCameraPublicationCall},
-            .camera_render = {.rva = 0x0004F86B, .expected = kGogCameraRenderCall},
         },
     .contexts =
         {
@@ -87,12 +74,7 @@ constexpr SpectatorCameraLayout kGogLayout{
             .root_matrix_call = {.rva = 0x000F22AC, .expected = kRootMatrixCall},
             .object_publication_arguments = {.rva = 0x000E6E3B, .expected = kObjectPublicationArguments},
             .object_render_arguments = {.rva = 0x000E28F9, .expected = kObjectRenderArguments},
-            .camera_publication_arguments =
-                {.rva = 0x0004F340,
-                 .expected = byte_array<0x8B, 0x46, 0x50, 0x69, 0xC8, 0xB0, 0x00, 0x00, 0x00, 0xFF, 0x74, 0x86, 0x24,
-                                        0xFF, 0x74, 0x86, 0x20, 0x81, 0xC1, 0x80, 0x24, 0xEB, 0x01>()},
-            .camera_interpolator_owner = {.rva = 0x0004F6C0, .expected = kCameraInterpolatorOwner},
-            .camera_render_arguments = {.rva = 0x0004F82B, .expected = kCameraRenderArguments},
+            .camera_publication_arguments = {.rva = 0x0004F340, .expected = kCameraPublicationArguments},
         },
     .state =
         {
@@ -139,10 +121,6 @@ void add_layout_requirements(PatchPlan& plan, const ImageContext& image, const S
                        layout.hooks.object_render_call.pattern());
     plan.require_bytes("Validate camera publication arguments", layout.contexts.camera_publication_arguments.rva,
                        layout.contexts.camera_publication_arguments.pattern());
-    plan.require_bytes("Validate camera interpolator owner", layout.contexts.camera_interpolator_owner.rva,
-                       layout.contexts.camera_interpolator_owner.pattern());
-    plan.require_bytes("Validate camera render arguments", layout.contexts.camera_render_arguments.rva,
-                       layout.contexts.camera_render_arguments.pattern());
 
     auto mode_probe =
         byte_array<0x38, 0x15, 0x00, 0x00, 0x00, 0x00, 0x0F, 0xB6, 0x0D, 0x00, 0x00, 0x00, 0x00, 0xF3, 0x0F, 0x7E, 0x44,
