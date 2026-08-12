@@ -58,6 +58,17 @@ function(fc_configure_project_target target)
         /W4
     )
 
+    get_target_property(target_type ${target} TYPE)
+    if(target_type STREQUAL "EXECUTABLE" OR
+       target_type STREQUAL "SHARED_LIBRARY" OR
+       target_type STREQUAL "MODULE_LIBRARY")
+        target_link_options(${target} PRIVATE
+            "$<$<CONFIG:RelWithDebInfo>:/INCREMENTAL:NO>"
+            "$<$<CONFIG:RelWithDebInfo>:/OPT:REF>"
+            "$<$<CONFIG:RelWithDebInfo>:/OPT:ICF>"
+        )
+    endif()
+
     if(FC_WARNINGS_AS_ERRORS)
         target_compile_options(${target} PRIVATE /WX)
     endif()

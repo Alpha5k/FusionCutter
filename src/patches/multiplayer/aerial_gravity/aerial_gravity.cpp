@@ -4,7 +4,7 @@ namespace fusioncutter::patches::aerial_gravity {
 namespace {
 
 constexpr float kStockAerialGravity = 18.0F;
-constexpr float kAerialGravityScale = 0.80F;
+constexpr float kAerialGravityScale = 0.75F;
 
 } // namespace
 

@@ -6,7 +6,6 @@
 
 namespace fusioncutter::patches::update_scheduling {
 
-// Enables per-turn client updates while fencing each native object-map CREATE transaction until settlement.
 class UpdateScheduling final : public RuntimePatch {
   public:
     explicit UpdateScheduling(const TargetContext& target) noexcept;
@@ -33,11 +32,20 @@ class UpdateScheduling final : public RuntimePatch {
     FreeObjectMap free_object_map_;
 
     [[nodiscard]] std::byte* player_state(std::size_t player) const noexcept;
+
+    // Reimplements bf2_create_fence_cc's capture of the pending map, turn, and send time.
     void record_create(std::uint32_t player) noexcept;
+
+    // Reimplements bf2_create_fence_blocks, including its acknowledgement timeout and native NACK reset.
     [[nodiscard]] bool fence_blocks(std::uint32_t player) noexcept;
 
+    // Reimplements bf2_su2_slotfix_cc's guard around SentUpdate's two acknowledgement slots.
     static void guard_sent_slot(MidHookContext& context) noexcept;
+
+    // Reimplements bf2_create_fence_cc's WriteObjects hook without its manual assembly trampoline.
     static void capture_create(MidHookContext& context) noexcept;
+
+    // Reimplements bf2_create_fence_gate_cc while preserving the earlier IsPipeFull gate.
     static void gate_destination(MidHookContext& context) noexcept;
 };
 

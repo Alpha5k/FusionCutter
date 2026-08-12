@@ -22,18 +22,28 @@ UpdateScheduling::UpdateScheduling(const TargetContext& target) noexcept
       free_object_map_(image_.function_at_rva<FreeObjectMap>(layout::kFreeObjectMapRva)) {}
 
 void UpdateScheduling::build_plan(PatchPlan& plan) {
-    plan.nop("Remove dedicated presentation delay", layout::kDedicatedPresentCallRva,
+    // bf2server_patch_netupdate: remove the dedicated render/present call that throttles the host loop.
+    plan.nop("Remove dedicated server render call", layout::kDedicatedPresentCallRva,
              BytePattern::exact(layout::kDedicatedPresentCall));
-    plan.nop("Visit every client", layout::kHalfClientLimiterRva, BytePattern::exact(layout::kHalfClientLimiter));
 
-    // These three hooks preserve the native object-map transaction while shortening ordinary update eligibility.
-    plan.mid_hook("Guard acknowledgement slots", layout::kSentSlotTimeCallRva,
+    // bf2server_patch_netupdate: remove the /2 limiter so each host pass may visit every client.
+    plan.nop("Visit all clients every host update", layout::kHalfClientLimiterRva,
+             BytePattern::exact(layout::kHalfClientLimiter));
+
+    // bf2_su2_slotfix_cc: keep SentUpdate inside its two real acknowledgement slots.
+    plan.mid_hook("Protect SentUpdate acknowledgement slots", layout::kSentSlotTimeCallRva,
                   BytePattern::exact(layout::kSentSlotTimeCall), &UpdateScheduling::guard_sent_slot);
-    plan.mid_hook("Record emitted object creates", layout::kCreateMarkerRva, BytePattern::exact(layout::kCreateMarker),
-                  &UpdateScheduling::capture_create);
-    plan.mid_hook("Fence pending object creates", layout::kCreateFenceGateRva,
+
+    // bf2_create_fence_cc: arm a fence only when WriteObjects emits CREATE state.
+    plan.mid_hook("Track emitted object CREATE records", layout::kCreateMarkerRva,
+                  BytePattern::exact(layout::kCreateMarker), &UpdateScheduling::capture_create);
+
+    // bf2_create_fence_gate_cc: withhold ordinary updates until ACK/NACK settles the CREATE map.
+    plan.mid_hook("Wait for object CREATE acknowledgement", layout::kCreateFenceGateRva,
                   BytePattern::exact(layout::kCreateFenceGate), &UpdateScheduling::gate_destination);
-    plan.checked_write("Schedule the next server turn", layout::kNextUpdateTurnRva,
+
+    // bf2server_patch_send_scheduling: make an unfenced destination eligible again next turn.
+    plan.checked_write("Schedule an update every turn", layout::kNextUpdateTurnRva,
                        BytePattern::exact(layout::kStockNextUpdateTurn), layout::kNextServerTurn);
 }
 
@@ -51,7 +61,6 @@ std::byte* UpdateScheduling::player_state(std::size_t player) const noexcept {
     return reinterpret_cast<std::byte*>(address);
 }
 
-// Snapshots native map identity only when WriteObjects reports that it emitted CREATE state.
 void UpdateScheduling::record_create(std::uint32_t player) noexcept {
     if (player >= kMaximumPlayers) {
         return;
@@ -71,7 +80,6 @@ void UpdateScheduling::record_create(std::uint32_t player) noexcept {
     };
 }
 
-// Blocks ordinary updates until ACK/NACK changes map identity, then uses the native NACK reset on timeout.
 bool UpdateScheduling::fence_blocks(std::uint32_t player) noexcept {
     if (player >= kMaximumPlayers) {
         return false;
@@ -101,13 +109,13 @@ bool UpdateScheduling::fence_blocks(std::uint32_t player) noexcept {
         return true;
     }
 
+    // This is the native NACK reset path, which regenerates CREATE state on the next eligible update.
     free_object_map_(live_map);
     write_native_field(state, kPendingMapOffset, allocate_object_map_());
     fence = {};
     return false;
 }
 
-// SendUpdate2 owns two acknowledgement slots; index two means neither slot is available.
 void UpdateScheduling::guard_sent_slot(MidHookContext& context) noexcept {
     const auto slot = read_native_field<std::int32_t>(reinterpret_cast<void*>(context.ebp - sizeof(std::int32_t)));
     if (slot >= 2) {
@@ -130,7 +138,6 @@ void UpdateScheduling::capture_create(MidHookContext& context) noexcept {
     }
 }
 
-// Replaces the interval-only send-window branch with the CREATE fence while retaining the earlier pipe-full gate.
 void UpdateScheduling::gate_destination(MidHookContext& context) noexcept {
     auto* patch = gPatch.read();
     if (patch == nullptr) {
