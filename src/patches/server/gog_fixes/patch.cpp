@@ -7,8 +7,8 @@ namespace fusioncutter::patches::gog_fixes {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<GogServerFixes, TargetLayout::GOGRetail>(
-        HostRole::Server, TargetImage::Game, ImageTiming::Startup, StartupFailurePolicy::StartupRequired),
+    make_patch_variant<GogServerFixes, TargetLayout::GOGRetail, HostRole::Server>(
+        TargetImage::Game, StartupFailurePolicy::StartupRequired),
 };
 
 } // namespace

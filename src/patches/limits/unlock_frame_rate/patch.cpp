@@ -10,12 +10,12 @@ namespace fusioncutter::patches::unlock_frame_rate {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<UnlockFrameRate, TargetLayout::SteamRetail, UnlockFrameRateSettings>(HostRole::Client,
-                                                                                            TargetImage::Game),
-    make_patch_variant<UnlockFrameRate, TargetLayout::GOGRetail, UnlockFrameRateSettings>(HostRole::Client,
-                                                                                          TargetImage::Game),
-    make_patch_variant<UnlockFrameRate, TargetLayout::ModTools, UnlockFrameRateSettings>(HostRole::Client,
-                                                                                         TargetImage::Game),
+    make_patch_variant<UnlockFrameRate, TargetLayout::SteamRetail, HostRole::Client, UnlockFrameRateSettings>(
+        TargetImage::Game),
+    make_patch_variant<UnlockFrameRate, TargetLayout::GOGRetail, HostRole::Client, UnlockFrameRateSettings>(
+        TargetImage::Game),
+    make_patch_variant<UnlockFrameRate, TargetLayout::ModTools, HostRole::Client, UnlockFrameRateSettings>(
+        TargetImage::Game),
 };
 
 } // namespace

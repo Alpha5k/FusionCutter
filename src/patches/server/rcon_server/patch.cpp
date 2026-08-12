@@ -8,10 +8,10 @@ namespace fusioncutter::patches::rcon_server {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<GogRcon, TargetLayout::GOGRetail>(HostRole::Server, TargetImage::Game, ImageTiming::Startup,
-                                                         StartupFailurePolicy::StartupRequired),
-    make_patch_variant<AspyrRcon, TargetLayout::Aspyr>(HostRole::Server, TargetImage::Game, ImageTiming::Startup,
-                                                       StartupFailurePolicy::StartupRequired),
+    make_patch_variant<GogRcon, TargetLayout::GOGRetail, HostRole::Server>(TargetImage::Game,
+                                                                           StartupFailurePolicy::StartupRequired),
+    make_patch_variant<AspyrRcon, TargetLayout::Aspyr, HostRole::Server>(TargetImage::Game,
+                                                                         StartupFailurePolicy::StartupRequired),
 };
 
 } // namespace

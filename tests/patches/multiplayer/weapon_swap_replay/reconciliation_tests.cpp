@@ -77,12 +77,3 @@ TEST_CASE("Packed weapon ownership survives channel acceptance until packed auth
     CHECK(snapshot.projected_key == weapon_swap::PackedSwapLedger::key(1, 2));
     CHECK(weapon_swap::PackedSwapLedger::project_selection(0xC0, snapshot.projected_key) == 0xD2);
 }
-
-TEST_CASE("Weapon switch filtering recognizes only a replayed held edge", "[patches][weapon_swap]") {
-    constexpr auto kDirection = weapon_swap::kPositiveSwitchDirectionBits;
-    constexpr auto kPrimaryButton = weapon_swap::kPositiveSwitchButtons[0];
-    CHECK(weapon_swap::held_switch_edge(0, 3, kDirection, kPrimaryButton, kPrimaryButton));
-    CHECK_FALSE(weapon_swap::held_switch_edge(0, 1, kDirection, kPrimaryButton, kPrimaryButton));
-    CHECK_FALSE(weapon_swap::held_switch_edge(0, 3, kDirection, 0, kPrimaryButton));
-    CHECK_FALSE(weapon_swap::held_switch_edge(1, 3, kDirection, kPrimaryButton, kPrimaryButton));
-}

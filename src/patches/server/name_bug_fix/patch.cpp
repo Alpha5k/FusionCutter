@@ -49,7 +49,7 @@ class NameBugFix final : public RuntimePatch {
 PatchInstanceSlot<NameBugFix> NameBugFix::instance_;
 
 const PatchVariants kVariants{
-    make_patch_variant<NameBugFix, TargetLayout::GOGRetail>(HostRole::Server, TargetImage::Game),
+    make_patch_variant<NameBugFix, TargetLayout::GOGRetail, HostRole::Server>(TargetImage::Game),
 };
 
 } // namespace

@@ -3,7 +3,9 @@ if(NOT FC_ARCHITECTURE STREQUAL "x86")
 endif()
 
 add_executable(rcon_tests
+    abi_tests.cpp
     gog_tests.cpp
+    "${FC_SOURCE_ROOT}/src/patches/server/rcon_server/gog/command.cpp"
     "${FC_SOURCE_ROOT}/src/patches/server/rcon_server/gog/protocol.cpp"
 )
 

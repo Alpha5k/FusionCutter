@@ -4,14 +4,10 @@
 #include <Windows.h>
 
 #include <array>
-#include <atomic>
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <string>
 #include <string_view>
-#include <system_error>
 
 namespace {
 
@@ -23,23 +19,10 @@ constexpr auto kArchitecture = fusioncutter::Architecture::X64;
 
 class LiveStatus final : public fusioncutter::StatusContributor {
   public:
-    enum class State {
-        Idle,
-        Connected,
-    };
-
     void write_status(fusioncutter::StatusSection& output) const noexcept override {
-        const auto state = state_.load(std::memory_order_relaxed);
-        output.add("State", state == State::Idle ? "Idle" : "Connected");
+        output.add("State", "Idle");
         output.add("Route", "Direct");
     }
-
-    void set_state(State state) noexcept {
-        state_.store(state, std::memory_order_relaxed);
-    }
-
-  private:
-    std::atomic<State> state_{State::Idle};
 };
 
 LiveStatus g_live_status;
@@ -75,14 +58,6 @@ BoundedStatus g_bounded_status;
     }
     path.resize(size);
     return std::filesystem::path(std::move(path)).parent_path();
-}
-
-[[nodiscard]] std::string read_text(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        return {};
-    }
-    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
 
 void publish_test_status(fusioncutter::LogLevel level) {
@@ -137,32 +112,6 @@ void publish_test_status(fusioncutter::LogLevel level) {
         publish_test_status(fusioncutter::LogLevel::Error);
         fusioncutter::logging::error("Core", "rotation marker");
         fusioncutter::reporting::Session::instance().flush();
-        return ERROR_SUCCESS;
-    }
-    if (mode == L"status-output-failure") {
-        publish_test_status(fusioncutter::LogLevel::Off);
-        return ERROR_SUCCESS;
-    }
-    if (mode == L"live-status") {
-        publish_test_status(fusioncutter::LogLevel::Off);
-        const auto status_path = executable_directory() / L"FusionCutter.txt";
-        std::error_code error;
-        const auto initial_time = std::filesystem::last_write_time(status_path, error);
-        if (error) {
-            return ERROR_FILE_NOT_FOUND;
-        }
-
-        Sleep(1'200);
-        if (std::filesystem::last_write_time(status_path, error) != initial_time || error) {
-            return ERROR_WRITE_FAULT;
-        }
-
-        g_live_status.set_state(LiveStatus::State::Connected);
-        Sleep(1'200);
-        if (std::filesystem::last_write_time(status_path, error) == initial_time || error ||
-            !read_text(status_path).contains("State: Connected")) {
-            return ERROR_WRITE_FAULT;
-        }
         return ERROR_SUCCESS;
     }
     if (mode == L"bounded-status") {

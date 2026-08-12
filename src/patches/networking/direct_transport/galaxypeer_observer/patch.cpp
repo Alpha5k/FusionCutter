@@ -7,11 +7,11 @@
 namespace fusioncutter::patches::galaxypeer_observer {
 namespace {
 
-constexpr std::array<PatchId, 1> kDependsOn{"DirectTransport"};
+constexpr std::array<PatchRelationship, 1> kDependsOn{"DirectTransport"};
 
 const PatchVariants kVariants{
-    make_patch_variant<GalaxyPeerObserver, TargetLayout::GOGRetail>(HostRole::Server, TargetImage::GalaxyPeer,
-                                                                    ImageTiming::OneShotLate),
+    make_patch_variant<GalaxyPeerObserver, TargetLayout::GOGRetail, HostRole::Server>(TargetImage::GalaxyPeer,
+                                                                                      ImageTiming::OneShotLate),
 };
 
 } // namespace

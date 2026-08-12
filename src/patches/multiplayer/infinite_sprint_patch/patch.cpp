@@ -7,7 +7,7 @@ namespace fusioncutter::patches::infinite_sprint_patch {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<InfiniteSprintPatch, TargetLayout::GOGRetail>(HostRole::Server, TargetImage::Game),
+    make_patch_variant<InfiniteSprintPatch, TargetLayout::GOGRetail, HostRole::Server>(TargetImage::Game),
 };
 
 } // namespace

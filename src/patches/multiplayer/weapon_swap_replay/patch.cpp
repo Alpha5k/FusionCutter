@@ -7,8 +7,8 @@ namespace fusioncutter::patches::weapon_swap_replay {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<WeaponSwapReplayFix, TargetLayout::SteamRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<WeaponSwapReplayFix, TargetLayout::GOGRetail>(HostRole::Client, TargetImage::Game),
+    make_patch_variant<WeaponSwapReplayFix, TargetLayout::SteamRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<WeaponSwapReplayFix, TargetLayout::GOGRetail, HostRole::Client>(TargetImage::Game),
 };
 
 } // namespace
@@ -19,7 +19,7 @@ PatchDefinition definition() {
         .enabled = true,
         .configurable = true,
         .category = categories::Multiplayer,
-        .description = "Prevent weapon swaps, sounds, and visuals from repeating after network updates.",
+        .description = "Prevent weapon swap sounds and visuals from repeating after network updates.",
         .variants = kVariants,
     };
 }

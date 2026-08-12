@@ -10,14 +10,14 @@ class FixturePatch final : public fusioncutter::Patch {
 };
 
 const fusioncutter::PatchVariants kVariants{
-    fusioncutter::make_patch_variant<FixturePatch, fusioncutter::TargetLayout::SteamRetail>(
-        fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game),
-    fusioncutter::make_patch_variant<FixturePatch, fusioncutter::TargetLayout::SteamRetail>(
-        fusioncutter::HostRole::Server, fusioncutter::TargetImage::Game),
-    fusioncutter::make_patch_variant<FixturePatch, fusioncutter::TargetLayout::Aspyr>(fusioncutter::HostRole::Client,
-                                                                                      fusioncutter::TargetImage::Game),
-    fusioncutter::make_patch_variant<FixturePatch, fusioncutter::TargetLayout::Aspyr>(fusioncutter::HostRole::Server,
-                                                                                      fusioncutter::TargetImage::Game),
+    fusioncutter::make_patch_variant<FixturePatch, fusioncutter::TargetLayout::SteamRetail,
+                                     fusioncutter::HostRole::Client>(fusioncutter::TargetImage::Game),
+    fusioncutter::make_patch_variant<FixturePatch, fusioncutter::TargetLayout::SteamRetail,
+                                     fusioncutter::HostRole::Server>(fusioncutter::TargetImage::Game),
+    fusioncutter::make_patch_variant<FixturePatch, fusioncutter::TargetLayout::Aspyr, fusioncutter::HostRole::Client>(
+        fusioncutter::TargetImage::Game),
+    fusioncutter::make_patch_variant<FixturePatch, fusioncutter::TargetLayout::Aspyr, fusioncutter::HostRole::Server>(
+        fusioncutter::TargetImage::Game),
 };
 
 } // namespace

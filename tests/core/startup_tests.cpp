@@ -178,10 +178,9 @@ void write_file(const std::filesystem::path& path, std::string_view content) {
     REQUIRE(output);
 }
 
-[[nodiscard]] fusioncutter::PatchDefinition definition(bool enabled,
-                                                       std::span<const fusioncutter::PatchVariant> variants,
-                                                       std::span<const fusioncutter::PatchId> dependencies = {},
-                                                       bool configurable = false) {
+[[nodiscard]] fusioncutter::PatchDefinition
+definition(bool enabled, std::span<const fusioncutter::PatchVariant> variants,
+           std::span<const fusioncutter::PatchRelationship> dependencies = {}, bool configurable = false) {
     return {
         .name = "Test Patch",
         .enabled = enabled,
@@ -231,11 +230,13 @@ TEST_CASE("Startup validates every plan before runtime preparation and commits b
     reset_behavior<0>({"Base", &events, &image.at(0), 16, std::byte{0x10}, std::byte{0x11}});
     reset_behavior<1>({"Feature", &events, &image.at(0), 32, std::byte{0x20}, std::byte{0x21}});
 
-    const fusioncutter::PatchVariants base_variants{fusioncutter::make_patch_variant<RuntimeFixture<0>, kLayout>(
-        fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game)};
-    const fusioncutter::PatchVariants feature_variants{fusioncutter::make_patch_variant<RuntimeFixture<1>, kLayout>(
-        fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game)};
-    constexpr std::array<fusioncutter::PatchId, 1> feature_requires = {"Base"};
+    const fusioncutter::PatchVariants base_variants{
+        fusioncutter::make_patch_variant<RuntimeFixture<0>, kLayout, fusioncutter::HostRole::Client>(
+            fusioncutter::TargetImage::Game)};
+    const fusioncutter::PatchVariants feature_variants{
+        fusioncutter::make_patch_variant<RuntimeFixture<1>, kLayout, fusioncutter::HostRole::Client>(
+            fusioncutter::TargetImage::Game)};
+    constexpr std::array<fusioncutter::PatchRelationship, 1> feature_requires = {"Base"};
     auto catalog = fusioncutter::catalog::initialize_catalog(
         {entry("Feature", definition(true, feature_variants, feature_requires)),
          entry("Base", definition(true, base_variants))},
@@ -269,10 +270,33 @@ TEST_CASE("Startup validates every plan before runtime preparation and commits b
     CHECK(g_behavior<1>.updates == 1);
 }
 
+TEST_CASE("Startup applies dependencies only to their matching variant", "[core][startup]") {
+    ImagePage image;
+    std::vector<std::string> events;
+    reset_behavior<0>({"ClientFeature", &events});
+
+    const fusioncutter::PatchVariants variants{
+        fusioncutter::make_patch_variant<RuntimeFixture<0>, kLayout, fusioncutter::HostRole::Client>(
+            fusioncutter::TargetImage::Game)};
+    constexpr std::array<fusioncutter::PatchRelationship, 1> server_requires{
+        fusioncutter::PatchRelationship{"ServerSupport", kLayout, fusioncutter::HostRole::Server},
+    };
+    auto catalog = fusioncutter::catalog::initialize_catalog(
+        {entry("ClientFeature", definition(true, variants, server_requires))}, {kArchitecture, true, false});
+    REQUIRE(catalog.has_value());
+
+    const auto target = image.target();
+    auto state = fusioncutter::run_startup(std::move(*catalog), {}, std::span{&target, 1});
+
+    CHECK(state.initialization_result().outcome == fusioncutter::InitializationOutcome::Completed);
+    CHECK(result(state, "ClientFeature").outcome == fusioncutter::PatchOutcome::Installed);
+}
+
 TEST_CASE("Startup discovers optional live status contributors once", "[core][startup]") {
     ImagePage image;
-    const fusioncutter::PatchVariants variants{fusioncutter::make_patch_variant<StatusRuntimeFixture, kLayout>(
-        fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game)};
+    const fusioncutter::PatchVariants variants{
+        fusioncutter::make_patch_variant<StatusRuntimeFixture, kLayout, fusioncutter::HostRole::Client>(
+            fusioncutter::TargetImage::Game)};
     auto catalog = fusioncutter::catalog::initialize_catalog({entry("LiveFeature", definition(true, variants))},
                                                              {kArchitecture, true, false});
     REQUIRE(catalog.has_value());
@@ -284,22 +308,26 @@ TEST_CASE("Startup discovers optional live status contributors once", "[core][st
     CHECK(state.status_contributors().front().contributor != nullptr);
 }
 
-TEST_CASE("A local plan failure skips dependents and preserves unrelated installation", "[core][startup]") {
+TEST_CASE("A local preparation failure writes nothing, skips dependents, and preserves unrelated installation",
+          "[core][startup]") {
     ImagePage image;
     std::vector<std::string> events;
     image.at(16) = std::byte{0x10};
     image.at(48) = std::byte{0x30};
-    reset_behavior<0>({"Broken", &events, &image.at(0), 16, std::byte{0x7F}, std::byte{0x11}});
+    reset_behavior<0>({"Broken", &events, &image.at(0), 16, std::byte{0x10}, std::byte{0x11}, true});
     reset_behavior<1>({"Dependent", &events});
     reset_behavior<2>({"Unrelated", &events, &image.at(0), 48, std::byte{0x30}, std::byte{0x31}});
 
-    const fusioncutter::PatchVariants broken_variants{fusioncutter::make_patch_variant<RuntimeFixture<0>, kLayout>(
-        fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game)};
-    const fusioncutter::PatchVariants dependent_variants{fusioncutter::make_patch_variant<RuntimeFixture<1>, kLayout>(
-        fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game)};
-    const fusioncutter::PatchVariants unrelated_variants{fusioncutter::make_patch_variant<RuntimeFixture<2>, kLayout>(
-        fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game)};
-    constexpr std::array<fusioncutter::PatchId, 1> dependent_requires = {"Broken"};
+    const fusioncutter::PatchVariants broken_variants{
+        fusioncutter::make_patch_variant<RuntimeFixture<0>, kLayout, fusioncutter::HostRole::Client>(
+            fusioncutter::TargetImage::Game)};
+    const fusioncutter::PatchVariants dependent_variants{
+        fusioncutter::make_patch_variant<RuntimeFixture<1>, kLayout, fusioncutter::HostRole::Client>(
+            fusioncutter::TargetImage::Game)};
+    const fusioncutter::PatchVariants unrelated_variants{
+        fusioncutter::make_patch_variant<RuntimeFixture<2>, kLayout, fusioncutter::HostRole::Client>(
+            fusioncutter::TargetImage::Game)};
+    constexpr std::array<fusioncutter::PatchRelationship, 1> dependent_requires = {"Broken"};
     auto catalog = fusioncutter::catalog::initialize_catalog(
         {entry("Broken", definition(true, broken_variants)),
          entry("Dependent", definition(true, dependent_variants, dependent_requires)),
@@ -320,43 +348,18 @@ TEST_CASE("A local plan failure skips dependents and preserves unrelated install
     CHECK(std::to_integer<unsigned int>(image.at(48)) == 0x31);
 }
 
-TEST_CASE("Runtime preparation failure writes nothing for that patch and unrelated work continues", "[core][startup]") {
-    ImagePage image;
-    std::vector<std::string> events;
-    image.at(16) = std::byte{0x10};
-    image.at(48) = std::byte{0x30};
-    reset_behavior<0>({"Service", &events, &image.at(0), 16, std::byte{0x10}, std::byte{0x11}, true});
-    reset_behavior<1>({"Unrelated", &events, &image.at(0), 48, std::byte{0x30}, std::byte{0x31}});
-
-    const fusioncutter::PatchVariants service_variants{fusioncutter::make_patch_variant<RuntimeFixture<0>, kLayout>(
-        fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game)};
-    const fusioncutter::PatchVariants unrelated_variants{fusioncutter::make_patch_variant<RuntimeFixture<1>, kLayout>(
-        fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game)};
-    auto catalog = fusioncutter::catalog::initialize_catalog({entry("Service", definition(true, service_variants)),
-                                                              entry("Unrelated", definition(true, unrelated_variants))},
-                                                             {kArchitecture, true, false});
-    REQUIRE(catalog.has_value());
-
-    const auto target = image.target();
-    auto state = fusioncutter::run_startup(std::move(*catalog), {}, std::span{&target, 1});
-
-    CHECK(state.initialization_result().outcome == fusioncutter::InitializationOutcome::Completed);
-    CHECK(result(state, "Service").outcome == fusioncutter::PatchOutcome::Failed);
-    CHECK(result(state, "Unrelated").outcome == fusioncutter::PatchOutcome::Installed);
-    CHECK(std::to_integer<unsigned int>(image.at(16)) == 0x10);
-    CHECK(std::to_integer<unsigned int>(image.at(48)) == 0x31);
-}
-
 TEST_CASE("An invalid patch toggle fails only that patch", "[core][startup]") {
     ImagePage image;
     std::vector<std::string> events;
     reset_behavior<0>({"Configured", &events});
     reset_behavior<1>({"Unrelated", &events});
 
-    const fusioncutter::PatchVariants configured_variants{fusioncutter::make_patch_variant<RuntimeFixture<0>, kLayout>(
-        fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game)};
-    const fusioncutter::PatchVariants unrelated_variants{fusioncutter::make_patch_variant<RuntimeFixture<1>, kLayout>(
-        fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game)};
+    const fusioncutter::PatchVariants configured_variants{
+        fusioncutter::make_patch_variant<RuntimeFixture<0>, kLayout, fusioncutter::HostRole::Client>(
+            fusioncutter::TargetImage::Game)};
+    const fusioncutter::PatchVariants unrelated_variants{
+        fusioncutter::make_patch_variant<RuntimeFixture<1>, kLayout, fusioncutter::HostRole::Client>(
+            fusioncutter::TargetImage::Game)};
     auto catalog =
         fusioncutter::catalog::initialize_catalog({entry("Configured", definition(true, configured_variants, {}, true)),
                                                    entry("Unrelated", definition(true, unrelated_variants))},
@@ -388,12 +391,12 @@ TEST_CASE("Startup-required policy promotes patch and dependency failures to fat
         reset_behavior<1>({"Unrelated", &events, &image.at(0), 48, std::byte{0x30}, std::byte{0x31}});
 
         const fusioncutter::PatchVariants critical_variants{
-            fusioncutter::make_patch_variant<RuntimeFixture<0>, kLayout>(
-                fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game, fusioncutter::ImageTiming::Startup,
+            fusioncutter::make_patch_variant<RuntimeFixture<0>, kLayout, fusioncutter::HostRole::Client>(
+                fusioncutter::TargetImage::Game, fusioncutter::ImageTiming::Startup,
                 fusioncutter::StartupFailurePolicy::StartupRequired)};
         const fusioncutter::PatchVariants unrelated_variants{
-            fusioncutter::make_patch_variant<RuntimeFixture<1>, kLayout>(fusioncutter::HostRole::Client,
-                                                                         fusioncutter::TargetImage::Game)};
+            fusioncutter::make_patch_variant<RuntimeFixture<1>, kLayout, fusioncutter::HostRole::Client>(
+                fusioncutter::TargetImage::Game)};
         auto catalog =
             fusioncutter::catalog::initialize_catalog({entry("Critical", definition(true, critical_variants)),
                                                        entry("Unrelated", definition(true, unrelated_variants))},
@@ -417,12 +420,13 @@ TEST_CASE("Startup-required policy promotes patch and dependency failures to fat
         reset_behavior<1>({"Support", &events});
 
         const fusioncutter::PatchVariants critical_variants{
-            fusioncutter::make_patch_variant<RuntimeFixture<0>, kLayout>(
-                fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game, fusioncutter::ImageTiming::Startup,
+            fusioncutter::make_patch_variant<RuntimeFixture<0>, kLayout, fusioncutter::HostRole::Client>(
+                fusioncutter::TargetImage::Game, fusioncutter::ImageTiming::Startup,
                 fusioncutter::StartupFailurePolicy::StartupRequired)};
-        const fusioncutter::PatchVariants support_variants{fusioncutter::make_patch_variant<RuntimeFixture<1>, kLayout>(
-            fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game)};
-        constexpr std::array<fusioncutter::PatchId, 1> critical_requires = {"Support"};
+        const fusioncutter::PatchVariants support_variants{
+            fusioncutter::make_patch_variant<RuntimeFixture<1>, kLayout, fusioncutter::HostRole::Client>(
+                fusioncutter::TargetImage::Game)};
+        constexpr std::array<fusioncutter::PatchRelationship, 1> critical_requires = {"Support"};
         auto catalog = fusioncutter::catalog::initialize_catalog(
             {entry("Critical", definition(true, critical_variants, critical_requires)),
              entry("Support", definition(true, support_variants, {}, true))},
@@ -456,9 +460,9 @@ TEST_CASE("A selected GOG late-image patch transitions once from waiting to inst
     g_late_target.reset();
 
     const fusioncutter::PatchVariants variants{
-        fusioncutter::make_patch_variant<RuntimeOnlyFixture<0>, fusioncutter::TargetLayout::GOGRetail>(
-            fusioncutter::HostRole::Client, fusioncutter::TargetImage::GalaxyPeer,
-            fusioncutter::ImageTiming::OneShotLate)};
+        fusioncutter::make_patch_variant<RuntimeOnlyFixture<0>, fusioncutter::TargetLayout::GOGRetail,
+                                         fusioncutter::HostRole::Client>(fusioncutter::TargetImage::GalaxyPeer,
+                                                                         fusioncutter::ImageTiming::OneShotLate)};
     auto catalog = fusioncutter::catalog::initialize_catalog({entry("Late", definition(true, variants))},
                                                              {fusioncutter::Architecture::X86, true, false});
     REQUIRE(catalog.has_value());

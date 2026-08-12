@@ -99,7 +99,7 @@ class ExampleFix final : public Patch {
 };
 
 const PatchVariants kVariants{
-    make_patch_variant<ExampleFix, TargetLayout::SteamRetail>(HostRole::Client, TargetImage::Game),
+    make_patch_variant<ExampleFix, TargetLayout::SteamRetail, HostRole::Client>(TargetImage::Game),
 };
 
 } // namespace
@@ -172,10 +172,10 @@ Steam, GOG, Mod Tools, and the Classic Collection often contain the same feature
 
 ```cpp
 const PatchVariants kVariants{
-    make_patch_variant<ExampleFix, TargetLayout::SteamRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<ExampleFix, TargetLayout::GOGRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<ExampleFix, TargetLayout::ModTools>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<ClassicExampleFix, TargetLayout::Aspyr>(HostRole::Client, TargetImage::Game),
+    make_patch_variant<ExampleFix, TargetLayout::SteamRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<ExampleFix, TargetLayout::GOGRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<ExampleFix, TargetLayout::ModTools, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<ClassicExampleFix, TargetLayout::Aspyr, HostRole::Client>(TargetImage::Game),
 };
 ```
 
@@ -187,7 +187,7 @@ Every native address and assumption must belong to the layout it was reviewed ag
 
 A variant says more than which release it supports. It also tells the core where and when the patch belongs.
 
-`HostRole::Client` and `HostRole::Server` distinguish the playable game from a dedicated server. A patch may support either or both roles, and it may use a different class for each when their native implementations differ.
+`HostRole::Client` and `HostRole::Server` distinguish the playable game from a dedicated server. A patch may support either or both roles, and it may use a different class for each when their native implementations differ. The role is part of the variant's template arguments so a role-specific build does not compile factories for the other role.
 
 `TargetImage` identifies the physical binary being changed:
 
@@ -262,18 +262,29 @@ The definition explains how that member appears in the configuration:
 Name the settings type in each applicable variant, then receive it as the first constructor argument:
 
 ```cpp
-make_patch_variant<UnlockFrameRate, TargetLayout::SteamRetail, UnlockFrameRateSettings>(
-    HostRole::Client, TargetImage::Game)
+make_patch_variant<UnlockFrameRate, TargetLayout::SteamRetail, HostRole::Client, UnlockFrameRateSettings>(
+    TargetImage::Game)
 
 UnlockFrameRate(UnlockFrameRateSettings settings, const TargetContext& target) noexcept;
 ```
 
 Settings may be booleans, integers, floating-point values, strings, or named enum choices. Related values can be placed in named groups, and a finite set of known string keys can represent mappings such as controller bindings. A patch may validate relationships between its completed values, but it never opens or parses the INI itself.
 
-Most variants share the definition's schema. If one role or target needs different settings, pass its schema directly
-to that `make_patch_variant()` call; only the matching configuration receives those entries. A launcher or server tool
-may also provide a startup override through the shared environment helpers. The patch reads that value after selection
-and owns its precedence and failure behavior; the framework toggle remains the outer gate.
+The settings type and schema serve different purposes. The fourth `make_patch_variant()` template argument names the
+C++ object passed to the patch constructor. The schema defines its configuration keys, defaults, choices, and
+validation. Most variants use the definition's shared schema.
+
+When settings belong to only one role or target, leave them out of the shared definition and pass the schema to that
+variant instead:
+
+```cpp
+make_patch_variant<ServerPatch, TargetLayout::GOGRetail, HostRole::Server, ServerSettings>(
+    TargetImage::Game, server_settings, StartupFailurePolicy::StartupRequired)
+```
+
+Only that variant's configuration receives those entries. Variants without a schema use `NoSettings` by default. A
+launcher or server tool may also provide a startup override through the shared environment helpers. The patch reads
+that value after selection and owns its precedence and failure behavior; the framework toggle remains the outer gate.
 
 See [Settings](reference.md#settings) for every builder and grouping option.
 
@@ -282,11 +293,22 @@ See [Settings](reference.md#settings) for every builder and grouping option.
 Patch relationships live in the definition:
 
 ```cpp
-.depends_on = {"RequiredPatch"},
-.includes = {"HelpfulCompanion"},
+constexpr std::array<PatchRelationship, 1> kDependsOn{"RequiredPatch"};
+constexpr std::array<PatchRelationship, 1> kIncludes{"HelpfulCompanion"};
+
+// In definition():
+.depends_on = kDependsOn,
+.includes = kIncludes,
 ```
 
 `depends_on` means this patch cannot install unless the named patch installs first. `includes` automatically selects a companion patch, but does not make the including patch fail when that companion cannot install. An explicit user disable still wins.
+
+The simple form applies to every variant. A relationship needed by only one target or role can specify either or both
+without changing the patch's identity or its other relationships:
+
+```cpp
+PatchRelationship{"GalaxyPeerObserver", TargetLayout::GOGRetail, HostRole::Server}
+```
 
 A dependency-only feature is still an ordinary patch. It can be nonconfigurable so it does not clutter the user's INI.
 

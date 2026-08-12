@@ -5,6 +5,7 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <utility>
 
@@ -13,6 +14,12 @@ namespace patch_detail {
 
 static_assert(sizeof(void*) == 4 || sizeof(void*) == 8);
 inline constexpr auto current_architecture = sizeof(void*) == 4 ? Architecture::X86 : Architecture::X64;
+
+#if defined(FC_PATCH_BUILD_ROLE_MASK)
+inline constexpr std::uint32_t kCurrentRoleMask = FC_PATCH_BUILD_ROLE_MASK;
+#else
+inline constexpr std::uint32_t kCurrentRoleMask = 3;
+#endif
 
 template <typename PatchType, typename... Arguments>
 [[nodiscard]] PatchInstance make_patch_instance(Arguments&&... arguments) {
@@ -45,10 +52,10 @@ template <typename PatchType, typename Settings = NoSettings>
     return {typeid(Settings), &patch_detail::construct_patch<PatchType, Settings>};
 }
 
-template <typename PatchType, TargetLayout Layout, typename Settings> struct PatchVariantDescriptor {
+template <typename PatchType, TargetLayout Layout, HostRole Role, typename Settings> struct PatchVariantDescriptor {
     static constexpr auto layout = Layout;
+    static constexpr auto role = Role;
 
-    HostRole role;
     TargetImage image;
     ImageTiming image_timing;
     StartupFailurePolicy failure_policy;
@@ -57,7 +64,7 @@ template <typename PatchType, TargetLayout Layout, typename Settings> struct Pat
     [[nodiscard]] PatchVariant materialize() const noexcept {
         return {
             .layout = Layout,
-            .role = role,
+            .role = Role,
             .image = image,
             .image_timing = image_timing,
             .failure_policy = failure_policy,
@@ -68,7 +75,9 @@ template <typename PatchType, TargetLayout Layout, typename Settings> struct Pat
 };
 
 template <typename Descriptor>
-inline constexpr bool compatible_with_current_build = target_architecture(Descriptor::layout) == current_architecture;
+inline constexpr bool compatible_with_current_build =
+    target_architecture(Descriptor::layout) == current_architecture &&
+    (Descriptor::role == HostRole::Client ? (kCurrentRoleMask & 1) != 0 : (kCurrentRoleMask & 2) != 0);
 
 template <std::size_t Size, typename Descriptor>
 void append_compatible_variant(std::array<PatchVariant, Size>& variants, std::size_t& next,
@@ -80,20 +89,34 @@ void append_compatible_variant(std::array<PatchVariant, Size>& variants, std::si
 
 } // namespace patch_detail
 
-template <typename PatchType, TargetLayout Layout, typename Settings = NoSettings>
+template <typename PatchType, TargetLayout Layout, HostRole Role, typename Settings = NoSettings>
     requires(std::derived_from<PatchType, Patch> || std::derived_from<PatchType, RuntimeOnlyPatch>)
-[[nodiscard]] auto make_patch_variant(HostRole role, TargetImage image, ImageTiming image_timing = ImageTiming::Startup,
+[[nodiscard]] auto make_patch_variant(TargetImage image, ImageTiming image_timing = ImageTiming::Startup,
                                       StartupFailurePolicy failure_policy = StartupFailurePolicy::Local) noexcept {
-    return patch_detail::PatchVariantDescriptor<PatchType, Layout, Settings>{role, image, image_timing, failure_policy};
+    return patch_detail::PatchVariantDescriptor<PatchType, Layout, Role, Settings>{image, image_timing, failure_policy};
 }
 
-template <typename PatchType, TargetLayout Layout, typename Settings>
+template <typename PatchType, TargetLayout Layout, HostRole Role, typename Settings = NoSettings>
     requires(std::derived_from<PatchType, Patch> || std::derived_from<PatchType, RuntimeOnlyPatch>)
-[[nodiscard]] auto make_patch_variant(HostRole role, TargetImage image, SettingsDefinition settings_override,
+[[nodiscard]] auto make_patch_variant(TargetImage image, StartupFailurePolicy failure_policy) noexcept {
+    return make_patch_variant<PatchType, Layout, Role, Settings>(image, ImageTiming::Startup, failure_policy);
+}
+
+template <typename PatchType, TargetLayout Layout, HostRole Role, typename Settings = NoSettings>
+    requires(std::derived_from<PatchType, Patch> || std::derived_from<PatchType, RuntimeOnlyPatch>)
+[[nodiscard]] auto make_patch_variant(TargetImage image, SettingsDefinition settings_override,
                                       ImageTiming image_timing = ImageTiming::Startup,
                                       StartupFailurePolicy failure_policy = StartupFailurePolicy::Local) noexcept {
-    return patch_detail::PatchVariantDescriptor<PatchType, Layout, Settings>{role, image, image_timing, failure_policy,
-                                                                             std::move(settings_override)};
+    return patch_detail::PatchVariantDescriptor<PatchType, Layout, Role, Settings>{image, image_timing, failure_policy,
+                                                                                   std::move(settings_override)};
+}
+
+template <typename PatchType, TargetLayout Layout, HostRole Role, typename Settings = NoSettings>
+    requires(std::derived_from<PatchType, Patch> || std::derived_from<PatchType, RuntimeOnlyPatch>)
+[[nodiscard]] auto make_patch_variant(TargetImage image, SettingsDefinition settings_override,
+                                      StartupFailurePolicy failure_policy) noexcept {
+    return make_patch_variant<PatchType, Layout, Role, Settings>(image, std::move(settings_override),
+                                                                 ImageTiming::Startup, failure_policy);
 }
 
 template <typename... Descriptors> class PatchVariants {

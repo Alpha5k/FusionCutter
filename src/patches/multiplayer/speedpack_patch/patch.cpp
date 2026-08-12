@@ -32,7 +32,7 @@ class SpeedpackPatch final : public Patch {
 };
 
 const PatchVariants kVariants{
-    make_patch_variant<SpeedpackPatch, TargetLayout::GOGRetail>(HostRole::Server, TargetImage::Game),
+    make_patch_variant<SpeedpackPatch, TargetLayout::GOGRetail, HostRole::Server>(TargetImage::Game),
 };
 
 } // namespace
@@ -43,7 +43,7 @@ PatchDefinition definition() {
         .enabled = true,
         .configurable = true,
         .category = categories::Multiplayer,
-        .description = "Prevent the speedpack exploit from launching detpacks above their intended speed.",
+        .description = "Patch the speedpack exploit that lets players launch detpacks at high speeds.",
         .variants = kVariants,
     };
 }

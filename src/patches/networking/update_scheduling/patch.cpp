@@ -7,7 +7,7 @@ namespace fusioncutter::patches::update_scheduling {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<UpdateScheduling, TargetLayout::GOGRetail>(HostRole::Server, TargetImage::Game),
+    make_patch_variant<UpdateScheduling, TargetLayout::GOGRetail, HostRole::Server>(TargetImage::Game),
 };
 
 } // namespace

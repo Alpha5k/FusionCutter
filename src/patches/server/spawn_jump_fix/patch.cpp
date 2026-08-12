@@ -7,7 +7,7 @@ namespace fusioncutter::patches::spawn_jump_fix {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<SpawnJumpFix, TargetLayout::GOGRetail>(HostRole::Server, TargetImage::Game),
+    make_patch_variant<SpawnJumpFix, TargetLayout::GOGRetail, HostRole::Server>(TargetImage::Game),
 };
 
 } // namespace

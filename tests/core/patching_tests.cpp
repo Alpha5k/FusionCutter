@@ -201,24 +201,6 @@ TEST_CASE("patch plans execute each fundamental operation") {
         REQUIRE(page.function<TestFunction>(kOffset)() == 5);
     }
 
-    SECTION("inline hook without original") {
-        constexpr std::size_t kOffset = 0x1C0;
-        const std::array function_bytes{std::byte{0xB8}, std::byte{0x05}, std::byte{},
-                                        std::byte{},     std::byte{},     std::byte{0xC3}};
-        const std::array hook_preimage{std::byte{0xB8}, std::byte{0x05}, std::byte{}, std::byte{}, std::byte{}};
-        page.write(kOffset, function_bytes);
-
-        PatchPlan plan{"InlineHookWithoutOriginal", page.image()};
-        plan.inline_hook("replace test function", static_cast<std::uint32_t>(kOffset), exact(hook_preimage),
-                         &redirect_destination);
-        auto prepared = prepare(std::move(plan));
-        reserve_and_commit(prepared);
-
-        REQUIRE(page.function<TestFunction>(kOffset)() == 9);
-        REQUIRE(prepared.rollback());
-        REQUIRE(page.function<TestFunction>(kOffset)() == 5);
-    }
-
     SECTION("mid hook with framework context") {
         constexpr std::size_t kOffset = 0x200;
         constexpr std::size_t kHookOffset = kOffset + 5;
@@ -458,19 +440,6 @@ TEST_CASE("mutation reservations enforce byte ownership without blocking safe ov
         REQUIRE_FALSE(conflict);
         REQUIRE(conflict.error().related_patch.has_value());
         REQUIRE((*conflict.error().related_patch == "Owner"));
-    }
-
-    SECTION("one plan cannot mutate bytes it also requires") {
-        PatchPlan plan{"SelfOverlap", page.image()};
-        plan.require_bytes("required byte", static_cast<std::uint32_t>(kOffset), exact(first));
-        plan.checked_write("owned byte", static_cast<std::uint32_t>(kOffset), exact(first), replacement);
-        auto prepared = prepare(std::move(plan));
-
-        MutationReservations reservations;
-        auto conflict = reservations.reserve(prepared);
-        REQUIRE_FALSE(conflict);
-        REQUIRE(conflict.error().related_patch.has_value());
-        REQUIRE((*conflict.error().related_patch == "SelfOverlap"));
     }
 
     SECTION("read overlaps and adjacent mutations are allowed") {

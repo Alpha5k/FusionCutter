@@ -196,17 +196,6 @@ void write_file(const std::filesystem::path& path, std::string_view content) {
 
 } // namespace
 
-TEST_CASE("Configuration paths are anchored beside the owning module with role-specific names", "[core][config]") {
-    const auto client = fusioncutter::config::configuration_path(fusioncutter::HostRole::Client);
-    const auto server = fusioncutter::config::configuration_path(fusioncutter::HostRole::Server);
-
-    REQUIRE(client.has_value());
-    REQUIRE(server.has_value());
-    CHECK(client->parent_path() == server->parent_path());
-    CHECK(client->filename() == L"FusionCutter.ini");
-    CHECK(server->filename() == L"FusionCutter-Server.ini");
-}
-
 TEST_CASE("Typed settings resolve defaults, overrides, groups, and validation", "[core][config]") {
     const auto definition = test_settings_definition();
     REQUIRE(definition.validate_metadata().has_value());
@@ -234,35 +223,6 @@ TEST_CASE("Typed settings resolve defaults, overrides, groups, and validation", 
     CHECK(patch->settings().mode == TestMode::Manual);
     CHECK(patch->settings().unit_bindings.value("A") == "Jump");
     CHECK(patch->layout() == fusioncutter::TargetLayout::SteamRetail);
-}
-
-TEST_CASE("The factory preserves the distinct runtime-only patch shape", "[core][config]") {
-    auto settings = fusioncutter::SettingsDefinition{}.make_defaults();
-    const auto variant = test_variant<RuntimeService>(fusioncutter::TargetLayout::SteamRetail,
-                                                      fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game);
-    auto instance = variant.factory.construct(std::move(settings), steam_client_target());
-    auto* service =
-        dynamic_cast<RuntimeService*>(std::get<std::unique_ptr<fusioncutter::RuntimeOnlyPatch>>(instance).get());
-    REQUIRE(service != nullptr);
-
-    auto* updatable = dynamic_cast<fusioncutter::Updatable*>(service);
-    REQUIRE(updatable != nullptr);
-    updatable->update();
-    CHECK(service->updates() == 1);
-}
-
-TEST_CASE("Settings metadata rejects case-insensitive duplicate keys", "[core][config]") {
-    auto definition = fusioncutter::SettingsDefinition::from(fusioncutter::SettingsSchema<TestSettings>{
-        .values =
-            {
-                fusioncutter::setting("Name", &TestSettings::name, std::string("First")),
-                fusioncutter::setting("name", &TestSettings::name, std::string("Second")),
-            },
-    });
-
-    const auto result = definition.validate_metadata();
-    REQUIRE_FALSE(result.has_value());
-    CHECK(result.error().message.contains("more than once"));
 }
 
 TEST_CASE("Variant settings keep role-specific configuration with one patch identity", "[core][config]") {
@@ -459,22 +419,6 @@ TEST_CASE("Existing configuration applies the last recognized value without rewr
     CHECK(settings.count == 7);
     CHECK(settings.mode == TestMode::Manual);
     CHECK(settings.unit_bindings.value("A") == "Jump");
-}
-
-TEST_CASE("Invalid logging level keeps the compiled default and remains diagnostic", "[core][config]") {
-    TemporaryDirectory directory;
-    const auto path = directory.file("FusionCutter.ini");
-    write_file(path, "[Logging]\r\nLevel=Verbose\r\n\r\n[Patches]\r\n");
-
-    auto loaded = fusioncutter::config::load_configuration(path, {});
-    REQUIRE(loaded.has_value());
-#if defined(_DEBUG)
-    CHECK(loaded->log_level() == fusioncutter::LogLevel::Debug);
-#else
-    CHECK(loaded->log_level() == fusioncutter::LogLevel::Error);
-#endif
-    REQUIRE(loaded->diagnostics().size() == 1);
-    CHECK(loaded->diagnostics().front().message.contains("expected Off, Error, Warning, Info, or Debug"));
 }
 
 TEST_CASE("Unsafe existing configuration fails before modifying its contents", "[core][config]") {

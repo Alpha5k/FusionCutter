@@ -10,15 +10,24 @@
 namespace fusioncutter::patches::direct_transport {
 namespace {
 
-constexpr std::array<PatchId, 1> kIncludes{"GalaxyPeerObserver"};
+constexpr std::array<PatchRelationship, 1> kIncludes{
+    PatchRelationship{"GalaxyPeerObserver", TargetLayout::GOGRetail, HostRole::Server},
+};
+
+using ClientPatch = client::DirectTransportClient;
+using ServerPatch = server::DirectTransportServer;
+
+const auto kServerSettings = SettingsDefinition::from(SettingsSchema<DirectTransportSettings>{
+    .values = {
+        choice("Policy", &DirectTransportSettings::policy, Policy::Disabled, server::kPolicyChoices)
+            .description("Controls which players must use authenticated direct UDP."),
+    }});
 
 const PatchVariants kVariants{
-    make_patch_variant<client::DirectTransportClient, TargetLayout::GOGRetail, NoSettings>(
-        HostRole::Client, TargetImage::Game, SettingsDefinition::from(SettingsSchema<NoSettings>{})),
-    make_patch_variant<client::DirectTransportClient, TargetLayout::SteamRetail, NoSettings>(
-        HostRole::Client, TargetImage::Game, SettingsDefinition::from(SettingsSchema<NoSettings>{})),
-    make_patch_variant<server::DirectTransportServer, TargetLayout::GOGRetail, DirectTransportSettings>(
-        HostRole::Server, TargetImage::Game, ImageTiming::Startup, StartupFailurePolicy::StartupRequired),
+    make_patch_variant<ClientPatch, TargetLayout::GOGRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<ClientPatch, TargetLayout::SteamRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<ServerPatch, TargetLayout::GOGRetail, HostRole::Server, DirectTransportSettings>(
+        TargetImage::Game, kServerSettings, StartupFailurePolicy::StartupRequired),
 };
 
 } // namespace
@@ -30,12 +39,6 @@ PatchDefinition definition() {
         .configurable = true,
         .category = categories::Networking,
         .description = "Sends multiplayer packets directly over authenticated UDP instead of GalaxyPeer",
-        .settings = SettingsDefinition::from(SettingsSchema<DirectTransportSettings>{
-            .values =
-                {
-                    choice("Policy", &DirectTransportSettings::policy, Policy::Disabled, server::kPolicyChoices)
-                        .description("Controls which players must use authenticated direct UDP."),
-                }}),
         .includes = kIncludes,
         .variants = kVariants,
     };

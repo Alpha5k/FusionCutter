@@ -7,7 +7,7 @@ namespace fusioncutter::patches::map_hang_fix {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<MapHangFix, TargetLayout::GOGRetail>(HostRole::Server, TargetImage::Game),
+    make_patch_variant<MapHangFix, TargetLayout::GOGRetail, HostRole::Server>(TargetImage::Game),
 };
 
 } // namespace
@@ -18,7 +18,7 @@ PatchDefinition definition() {
         .enabled = true,
         .configurable = true,
         .category = categories::Server,
-        .description = "Recover dedicated servers that become stuck during map changes.",
+        .description = "Recover dedicated servers that hang during map changes.",
         .variants = kVariants,
     };
 }

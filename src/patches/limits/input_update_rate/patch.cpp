@@ -41,9 +41,9 @@ class InputUpdateRate final : public Patch {
 };
 
 const PatchVariants kVariants{
-    make_patch_variant<InputUpdateRate, TargetLayout::SteamRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<InputUpdateRate, TargetLayout::GOGRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<InputUpdateRate, TargetLayout::ModTools>(HostRole::Client, TargetImage::Game),
+    make_patch_variant<InputUpdateRate, TargetLayout::SteamRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<InputUpdateRate, TargetLayout::GOGRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<InputUpdateRate, TargetLayout::ModTools, HostRole::Client>(TargetImage::Game),
 };
 
 } // namespace

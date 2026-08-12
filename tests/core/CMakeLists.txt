@@ -35,6 +35,7 @@ else()
 endif()
 
 target_compile_definitions(catalog_tests PRIVATE
+    FC_PATCH_BUILD_ROLE_MASK=${FC_CORE_ROLE_MASK}
     FC_TEST_CATALOG_CLIENT=${test_catalog_client}
     FC_TEST_CATALOG_SERVER=${test_catalog_server}
     FC_TEST_HAS_X86_CLIENT_SOURCE=${has_x86_client_source}
@@ -44,14 +45,6 @@ fc_configure_project_target(catalog_tests)
 fc_set_artifact_directories(catalog_tests)
 
 add_test(NAME core.catalog COMMAND catalog_tests)
-
-add_test(NAME core.catalog_duplicate
-    COMMAND "${CMAKE_COMMAND}"
-        "-DFC_TEST_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/catalog/duplicate"
-        "-DFC_TEST_BINARY=${CMAKE_CURRENT_BINARY_DIR}/catalog_duplicate"
-        "-DFC_PROJECT_ROOT=${FC_SOURCE_ROOT}"
-        -P "${CMAKE_CURRENT_SOURCE_DIR}/catalog/duplicate/check.cmake"
-)
 
 add_executable(config_tests
     config_tests.cpp

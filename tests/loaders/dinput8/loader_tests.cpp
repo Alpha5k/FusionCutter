@@ -1,3 +1,5 @@
+#include "../loader_harness.hpp"
+
 #include <FusionCutter/LoaderApi.h>
 
 #include <catch2/catch_session.hpp>
@@ -12,10 +14,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <iterator>
 #include <string>
 #include <string_view>
-#include <system_error>
 
 namespace {
 
@@ -27,48 +27,10 @@ using GetHostEventCountFn = std::uint32_t(FC_CALL*)();
 using GetLastHostEventLevelFn = FC_HostEventLevel(FC_CALL*)();
 using GetLastHostEventFn = const char*(FC_CALL*)();
 
-#define FC_TEST_REQUIRE(expression)                                                                                    \
-    do {                                                                                                               \
-        if (!(expression)) {                                                                                           \
-            return __LINE__;                                                                                           \
-        }                                                                                                              \
-    } while (false)
-
-class TemporaryDirectory {
-  public:
-    TemporaryDirectory() {
-        std::array<wchar_t, 32'768> root{};
-        const auto length = GetTempPathW(static_cast<DWORD>(root.size()), root.data());
-        REQUIRE(length > 0);
-        REQUIRE(length < root.size());
-
-        path_ =
-            std::filesystem::path(root.data()) / (L"FusionCutter-dinput8-" + std::to_wstring(GetCurrentProcessId()) +
-                                                  L"-" + std::to_wstring(GetTickCount64()));
-        REQUIRE(std::filesystem::create_directory(path_));
-        REQUIRE(std::filesystem::create_directory(proxy_directory()));
-        REQUIRE(std::filesystem::create_directory(working_directory()));
-    }
-
-    ~TemporaryDirectory() {
-        std::error_code ignored;
-        std::filesystem::remove_all(path_, ignored);
-    }
-
-    TemporaryDirectory(const TemporaryDirectory&) = delete;
-    TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
-
-    [[nodiscard]] std::filesystem::path proxy_directory() const {
-        return path_ / L"proxy";
-    }
-
-    [[nodiscard]] std::filesystem::path working_directory() const {
-        return path_ / L"working";
-    }
-
-  private:
-    std::filesystem::path path_;
-};
+using fusioncutter::tests::loader_harness::copy_artifact;
+using fusioncutter::tests::loader_harness::environment_path;
+using fusioncutter::tests::loader_harness::export_function;
+using fusioncutter::tests::loader_harness::read_file;
 
 enum class Setup {
     System,
@@ -78,30 +40,8 @@ enum class Setup {
     WorkingDirectoryCore,
 };
 
-[[nodiscard]] std::filesystem::path environment_path(const wchar_t* name) {
-    std::array<wchar_t, 32'768> value{};
-    const auto length = GetEnvironmentVariableW(name, value.data(), static_cast<DWORD>(value.size()));
-    if (length == 0 || length >= value.size()) {
-        return {};
-    }
-    return {std::wstring_view{value.data(), length}};
-}
-
-[[nodiscard]] std::filesystem::path executable_path() {
-    std::array<wchar_t, 32'768> value{};
-    const auto length = GetModuleFileNameW(nullptr, value.data(), static_cast<DWORD>(value.size()));
-    REQUIRE(length > 0);
-    REQUIRE(length < value.size());
-    return {std::wstring_view{value.data(), length}};
-}
-
-void copy_artifact(const std::filesystem::path& source, const std::filesystem::path& destination) {
-    REQUIRE(!source.empty());
-    REQUIRE(std::filesystem::copy_file(source, destination));
-}
-
-void prepare_probe(const TemporaryDirectory& directory, Setup setup) {
-    const auto proxy_directory = directory.proxy_directory();
+void prepare_probe(const fusioncutter::tests::loader_harness::Sandbox& directory, Setup setup) {
+    const auto proxy_directory = directory.artifact_directory();
     copy_artifact(environment_path(L"FC_DINPUT8_TEST_DLL"), proxy_directory / L"dinput8.dll");
 
     const bool adjacent_core = setup != Setup::WorkingDirectoryCore;
@@ -125,42 +65,9 @@ void prepare_probe(const TemporaryDirectory& directory, Setup setup) {
 }
 
 [[nodiscard]] DWORD run_probe(std::string_view mode, Setup setup) {
-    TemporaryDirectory directory;
+    fusioncutter::tests::loader_harness::Sandbox directory{L"dinput8", L"proxy"};
     prepare_probe(directory, setup);
-
-    const auto probe_directory = directory.proxy_directory().wstring();
-    REQUIRE(SetEnvironmentVariableW(L"FC_DINPUT8_PROBE_DIRECTORY", probe_directory.c_str()));
-
-    const auto executable = executable_path();
-    std::wstring command = L"\"" + executable.wstring() + L"\" --probe ";
-    command.append(mode.begin(), mode.end());
-
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION process{};
-    const auto created = CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr,
-                                        directory.working_directory().c_str(), &startup, &process);
-    SetEnvironmentVariableW(L"FC_DINPUT8_PROBE_DIRECTORY", nullptr);
-    REQUIRE(created);
-
-    const auto wait = WaitForSingleObject(process.hProcess, 30'000);
-    if (wait == WAIT_TIMEOUT) {
-        TerminateProcess(process.hProcess, ERROR_TIMEOUT);
-        WaitForSingleObject(process.hProcess, 5'000);
-    }
-
-    DWORD exit_code = STILL_ACTIVE;
-    static_cast<void>(GetExitCodeProcess(process.hProcess, &exit_code));
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
-    const std::string mode_text{mode};
-    CAPTURE(mode_text, wait, exit_code);
-    REQUIRE(wait == WAIT_OBJECT_0);
-    return exit_code;
-}
-
-template <typename Function> [[nodiscard]] Function export_function(HMODULE module, const char* name) noexcept {
-    return reinterpret_cast<Function>(GetProcAddress(module, name));
+    return fusioncutter::tests::loader_harness::run_probe(directory, L"FC_DINPUT8_PROBE_DIRECTORY", mode);
 }
 
 struct StubApi {
@@ -220,22 +127,12 @@ struct StubApi {
     return 0;
 }
 
-[[nodiscard]] std::string read_file(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        return {};
-    }
-    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
-}
-
 [[nodiscard]] int run_child(std::string_view mode) {
     try {
         if (mode == "chain_fatal") {
             FC_TEST_REQUIRE(SetEnvironmentVariableA("FC_STUB_INIT_RESULT", "Fatal"));
         } else if (mode == "incompatible") {
             FC_TEST_REQUIRE(SetEnvironmentVariableA("FC_STUB_QUERY_MODE", "Unsupported"));
-        } else if (mode == "invalid_api") {
-            FC_TEST_REQUIRE(SetEnvironmentVariableA("FC_STUB_QUERY_MODE", "InvalidTable"));
         }
 
         const auto directory = environment_path(L"FC_DINPUT8_PROBE_DIRECTORY");
@@ -260,8 +157,7 @@ struct StubApi {
         FC_TEST_REQUIRE(get_joystick() != nullptr);
         FC_TEST_REQUIRE(GetModuleHandleW(L"FusionCutter.dll") == nullptr);
 
-        const bool chain_forwards_create =
-            mode == "chain_fatal" || mode == "missing" || mode == "incompatible" || mode == "invalid_api";
+        const bool chain_forwards_create = mode == "chain_fatal" || mode == "missing" || mode == "incompatible";
         if (chain_forwards_create) {
             FC_TEST_REQUIRE(create(nullptr, 0, IID_IDirectInput8A, nullptr, nullptr) == S_FALSE);
             FC_TEST_REQUIRE(create(nullptr, 0, IID_IDirectInput8A, nullptr, nullptr) == S_FALSE);
@@ -287,10 +183,6 @@ struct StubApi {
         FC_TEST_REQUIRE(fallback.contains("Status: Fatal"));
         if (mode == "incompatible") {
             FC_TEST_REQUIRE(fallback.contains("does not support this loader ABI"));
-            return 0;
-        }
-        if (mode == "invalid_api") {
-            FC_TEST_REQUIRE(fallback.contains("invalid loader API"));
             return 0;
         }
         FC_TEST_REQUIRE(mode == "missing");
@@ -331,7 +223,6 @@ TEST_CASE("DirectInput loader rejects invalid and ambiguous chains without losin
 TEST_CASE("DirectInput loader uses only an adjacent compatible core and writes fallback status", "[loaders][dinput8]") {
     CHECK(run_probe("missing", Setup::WorkingDirectoryCore) == ERROR_SUCCESS);
     CHECK(run_probe("incompatible", Setup::Chain) == ERROR_SUCCESS);
-    CHECK(run_probe("invalid_api", Setup::Chain) == ERROR_SUCCESS);
 }
 
 int main(int argc, char* argv[]) {

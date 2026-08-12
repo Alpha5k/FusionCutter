@@ -52,7 +52,6 @@ class Game {
 
   private:
     using Formatter = int(__cdecl*)(char*, std::size_t, const char*, ...);
-    using CommandFunction = std::uint32_t(__fastcall*)(int, const wchar_t*, std::uint8_t, std::uint8_t);
     using LuaLoadBufferFunction = int(__cdecl*)(std::uint32_t, const char*, std::size_t, const char*);
     using LuaPcallFunction = int(__cdecl*)(std::uint32_t, int, int, int);
     using LuaSetTopFunction = void(__cdecl*)(std::uint32_t, int);

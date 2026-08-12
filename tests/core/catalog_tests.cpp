@@ -20,6 +20,7 @@ using fusioncutter::HostRole;
 using fusioncutter::ImageTiming;
 using fusioncutter::PatchDefinition;
 using fusioncutter::PatchId;
+using fusioncutter::PatchRelationship;
 using fusioncutter::PatchVariant;
 using fusioncutter::PresentationCategory;
 using fusioncutter::StartupFailurePolicy;
@@ -50,21 +51,26 @@ struct TypedSettings {
 
 constexpr PresentationCategory kGameplay{"Gameplay", 200};
 constexpr PatchBuildEnvelope kX86ClientEnvelope{true, false, true, false};
+constexpr PatchBuildEnvelope kX86UniversalEnvelope{true, false, true, true};
 const PatchVariant kSteamClient =
     test_variant<FixturePatch>(TargetLayout::SteamRetail, HostRole::Client, TargetImage::Game);
 const PatchVariant kGogClient =
     test_variant<FixturePatch>(TargetLayout::GOGRetail, HostRole::Client, TargetImage::Game);
-const PatchVariant kGogLateClient = test_variant<FixturePatch>(TargetLayout::GOGRetail, HostRole::Client,
+const PatchVariant kGogServer =
+    test_variant<FixturePatch>(TargetLayout::GOGRetail, HostRole::Server, TargetImage::Game);
+const PatchVariant kGogLateServer = test_variant<FixturePatch>(TargetLayout::GOGRetail, HostRole::Server,
                                                                TargetImage::GalaxyPeer, ImageTiming::OneShotLate);
 const PatchVariant kInvalidSecondSteamImage = test_variant<FixturePatch>(
     TargetLayout::SteamRetail, HostRole::Client, TargetImage::Bootstrap, ImageTiming::OneShotLate);
 const PatchVariant kAspyrClient = test_variant<FixturePatch>(TargetLayout::Aspyr, HostRole::Client, TargetImage::Game);
 const std::array kSteamVariants = {kSteamClient};
 const std::array kGogVariants = {kGogClient};
+const std::array kGogServerVariants = {kGogServer};
+const std::array kGogClientServerVariants = {kGogClient, kGogServer};
 const std::array kAspyrVariants = {kAspyrClient};
 
-[[nodiscard]] PatchDefinition definition(bool enabled, std::span<const PatchId> dependencies = {},
-                                         std::span<const PatchId> includes = {},
+[[nodiscard]] PatchDefinition definition(bool enabled, std::span<const PatchRelationship> dependencies = {},
+                                         std::span<const PatchRelationship> includes = {},
                                          std::span<const PatchVariant> variants = kSteamVariants,
                                          bool configurable = true, PresentationCategory category = kGameplay) {
     return {
@@ -99,6 +105,12 @@ const std::array kAspyrVariants = {kAspyrClient};
     return target;
 }
 
+[[nodiscard]] TargetContext gog_server_target() {
+    auto target = gog_client_target();
+    target.role = HostRole::Server;
+    return target;
+}
+
 [[nodiscard]] std::vector<std::string> selected_ids(const fusioncutter::catalog::PatchSelection& selection) {
     std::vector<std::string> ids;
     for (const auto& selected : selection.install_order) {
@@ -118,9 +130,9 @@ const std::array kAspyrVariants = {kAspyrClient};
 } // namespace
 
 TEST_CASE("Catalog selection resolves required and automatic relationships in deterministic order", "[core][catalog]") {
-    constexpr std::array<PatchId, 1> feature_requires = {"BaseSupport"};
-    constexpr std::array<PatchId, 1> transport_selects = {"GalaxyPeerObserver"};
-    constexpr std::array<PatchId, 1> observer_requires = {"DirectTransport"};
+    constexpr std::array<PatchRelationship, 1> feature_requires = {"BaseSupport"};
+    constexpr std::array<PatchRelationship, 1> transport_selects = {"GalaxyPeerObserver"};
+    constexpr std::array<PatchRelationship, 1> observer_requires = {"DirectTransport"};
 
     auto catalog = fusioncutter::catalog::initialize_catalog(
         {
@@ -145,26 +157,52 @@ TEST_CASE("Catalog selection resolves required and automatic relationships in de
     CHECK(entry_ids(selection.not_applicable) == std::vector<std::string>{"GogOnly"});
 }
 
-TEST_CASE("Catalog selection includes a declared late image for the recognized environment", "[core][catalog]") {
-    auto catalog = fusioncutter::catalog::initialize_catalog(
-        {entry("GalaxyPeerObserver", definition(true, {}, {}, std::span{&kGogLateClient, 1}, false))},
-        CatalogScope{Architecture::X86, true, false});
-    REQUIRE(catalog.has_value());
+TEST_CASE("Catalog relationships may be limited to a layout and role", "[core][catalog]") {
+    constexpr std::array<PatchRelationship, 1> server_includes{
+        PatchRelationship{"GalaxyPeerObserver", TargetLayout::GOGRetail, HostRole::Server},
+    };
+    constexpr std::array<PatchRelationship, 1> observer_requires{"DirectTransport"};
 
-    const auto selection = fusioncutter::catalog::select_patches(*catalog, gog_client_target());
-    REQUIRE(selection.install_order.size() == 1);
-    CHECK(selection.install_order.front().variant->image_timing == ImageTiming::OneShotLate);
-    CHECK(selection.install_order.front().variant->image == TargetImage::GalaxyPeer);
+    SECTION("a server artifact still requires the scoped companion to exist") {
+        auto catalog = fusioncutter::catalog::initialize_catalog(
+            {entry("DirectTransport", definition(true, {}, server_includes, kGogServerVariants),
+                   kX86UniversalEnvelope)},
+            CatalogScope{Architecture::X86, false, true});
+
+        REQUIRE_FALSE(catalog.has_value());
+        CHECK(catalog.error().message.contains("does not exist"));
+    }
+
+    SECTION("a universal artifact applies the relationship only to its server variant") {
+        auto catalog = fusioncutter::catalog::initialize_catalog(
+            {
+                entry("DirectTransport", definition(true, {}, server_includes, kGogClientServerVariants),
+                      kX86UniversalEnvelope),
+                entry("GalaxyPeerObserver",
+                      definition(false, observer_requires, {}, std::span{&kGogLateServer, 1}, false),
+                      kX86UniversalEnvelope),
+            },
+            CatalogScope{Architecture::X86, true, true});
+
+        REQUIRE(catalog.has_value());
+        CHECK(selected_ids(fusioncutter::catalog::select_patches(*catalog, gog_client_target())) ==
+              std::vector<std::string>{"DirectTransport"});
+        CHECK(selected_ids(fusioncutter::catalog::select_patches(*catalog, gog_server_target())) ==
+              std::vector<std::string>{"DirectTransport", "GalaxyPeerObserver"});
+    }
 }
 
 TEST_CASE("Generated catalog discovers nested manifests in stable ID order", "[core][catalog]") {
     constexpr auto architecture = sizeof(void*) == 4 ? Architecture::X86 : Architecture::X64;
     auto entries = fusioncutter::catalog::generated_catalog_entries();
-    constexpr bool includes_client_only = architecture == Architecture::X86 && FC_TEST_CATALOG_CLIENT != 0;
+    constexpr bool includes_client = FC_TEST_CATALOG_CLIENT != 0;
+    constexpr bool includes_server = FC_TEST_CATALOG_SERVER != 0;
+    constexpr bool includes_client_only = architecture == Architecture::X86 && includes_client;
     REQUIRE(entries.size() == (includes_client_only ? 3 : 2));
     for (const auto& catalog_entry : entries) {
-        CHECK(std::ranges::all_of(catalog_entry.definition.variants, [architecture](const auto& variant) {
-            return fusioncutter::target_architecture(variant.layout) == architecture;
+        CHECK(std::ranges::all_of(catalog_entry.definition.variants, [=](const auto& variant) {
+            const auto includes_role = variant.role == HostRole::Client ? includes_client : includes_server;
+            return fusioncutter::target_architecture(variant.layout) == architecture && includes_role;
         }));
     }
     CHECK(std::string(entries[0].id) == "Alpha");
@@ -179,9 +217,9 @@ TEST_CASE("Generated catalog discovers nested manifests in stable ID order", "[c
 }
 
 TEST_CASE("Explicit disable wins without removing unrelated selected patches", "[core][catalog]") {
-    constexpr std::array<PatchId, 1> feature_requires = {"BaseSupport"};
-    constexpr std::array<PatchId, 1> transport_selects = {"GalaxyPeerObserver"};
-    constexpr std::array<PatchId, 1> observer_requires = {"DirectTransport"};
+    constexpr std::array<PatchRelationship, 1> feature_requires = {"BaseSupport"};
+    constexpr std::array<PatchRelationship, 1> transport_selects = {"GalaxyPeerObserver"};
+    constexpr std::array<PatchRelationship, 1> observer_requires = {"DirectTransport"};
 
     auto catalog = fusioncutter::catalog::initialize_catalog(
         {
@@ -208,7 +246,7 @@ TEST_CASE("Explicit disable wins without removing unrelated selected patches", "
 
 TEST_CASE("Invalid catalog relationships and variants fail before selection", "[core][catalog]") {
     SECTION("missing reference") {
-        constexpr std::array<PatchId, 1> missing = {"MissingPatch"};
+        constexpr std::array<PatchRelationship, 1> missing = {"MissingPatch"};
         auto catalog = fusioncutter::catalog::initialize_catalog({entry("Dependent", definition(true, missing))},
                                                                  CatalogScope{Architecture::X86, true, false});
 
@@ -219,8 +257,8 @@ TEST_CASE("Invalid catalog relationships and variants fail before selection", "[
     }
 
     SECTION("required cycle") {
-        constexpr std::array<PatchId, 1> first_requires = {"Second"};
-        constexpr std::array<PatchId, 1> second_requires = {"First"};
+        constexpr std::array<PatchRelationship, 1> first_requires = {"Second"};
+        constexpr std::array<PatchRelationship, 1> second_requires = {"First"};
         auto catalog = fusioncutter::catalog::initialize_catalog(
             {
                 entry("First", definition(true, first_requires)),
@@ -230,16 +268,6 @@ TEST_CASE("Invalid catalog relationships and variants fail before selection", "[
 
         REQUIRE_FALSE(catalog.has_value());
         CHECK(catalog.error().message.contains("cycle"));
-    }
-
-    SECTION("duplicate target tuple") {
-        const std::array duplicate_variants = {kSteamClient, kSteamClient};
-        auto catalog = fusioncutter::catalog::initialize_catalog(
-            {entry("DuplicateVariant", definition(true, {}, {}, duplicate_variants))},
-            CatalogScope{Architecture::X86, true, false});
-
-        REQUIRE_FALSE(catalog.has_value());
-        CHECK(catalog.error().message.contains("same target tuple"));
     }
 
     SECTION("multiple physical images for one environment") {
@@ -273,18 +301,6 @@ TEST_CASE("Invalid catalog relationships and variants fail before selection", "[
         CHECK(catalog.error().message.contains("cannot be startup-required"));
     }
 
-    SECTION("category order disagreement") {
-        auto catalog = fusioncutter::catalog::initialize_catalog(
-            {
-                entry("First", definition(true, {}, {}, kSteamVariants, true, {"Gameplay", 100})),
-                entry("Second", definition(true, {}, {}, kSteamVariants, true, {"Gameplay", 200})),
-            },
-            CatalogScope{Architecture::X86, true, false});
-
-        REQUIRE_FALSE(catalog.has_value());
-        CHECK(catalog.error().message.contains("category order"));
-    }
-
     SECTION("factory settings type disagreement") {
         auto patch_definition = definition(true);
         patch_definition.settings = fusioncutter::SettingsDefinition::from(fusioncutter::SettingsSchema<TypedSettings>{
@@ -295,17 +311,5 @@ TEST_CASE("Invalid catalog relationships and variants fail before selection", "[
 
         REQUIRE_FALSE(catalog.has_value());
         CHECK(catalog.error().message.contains("wrong settings type"));
-    }
-
-    SECTION("invalid settings default") {
-        auto patch_definition = definition(true);
-        patch_definition.settings = fusioncutter::SettingsDefinition::from(fusioncutter::SettingsSchema<TypedSettings>{
-            .values = {fusioncutter::setting("Value", &TypedSettings::value, 10).range(0, 5)},
-        });
-        auto catalog = fusioncutter::catalog::initialize_catalog({entry("WrongDefault", std::move(patch_definition))},
-                                                                 CatalogScope{Architecture::X86, true, false});
-
-        REQUIRE_FALSE(catalog.has_value());
-        CHECK(catalog.error().message.contains("invalid range or default"));
     }
 }

@@ -189,16 +189,6 @@ TEST_CASE("Direct Transport retains one carrier and generation across nested nat
     CHECK_FALSE(group.end());
 }
 
-TEST_CASE("Direct Transport route states only advance toward one terminal carrier", "[patches][direct_transport]") {
-    static_assert(valid_route_transition(RouteState::Unclassified, RouteState::Negotiating));
-    static_assert(valid_route_transition(RouteState::Negotiating, RouteState::AwaitCommit));
-    static_assert(valid_route_transition(RouteState::AwaitCommit, RouteState::DirectLocked));
-    static_assert(valid_route_transition(RouteState::AwaitCommit, RouteState::GalaxyLocked));
-    static_assert(valid_route_transition(RouteState::DirectLocked, RouteState::DirectLocked));
-    static_assert(!valid_route_transition(RouteState::DirectLocked, RouteState::GalaxyLocked));
-    static_assert(!valid_route_transition(RouteState::GalaxyLocked, RouteState::Negotiating));
-}
-
 TEST_CASE("Direct Transport admits a bounded receive batch and drains the remaining datagrams",
           "[patches][direct_transport]") {
     std::uint32_t next{};

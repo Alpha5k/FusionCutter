@@ -14,6 +14,7 @@ fc_patch_sources(
     SOURCES
         gog/authentication.cpp
         gog/client.cpp
+        gog/command.cpp
         gog/game.cpp
         gog/protocol.cpp
         gog/rcon.cpp

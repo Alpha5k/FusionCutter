@@ -35,3 +35,4 @@ if(FC_ARCHITECTURE STREQUAL "x86")
 endif()
 
 fc_configure_project_target(fusioncutter_catalog)
+target_compile_definitions(fusioncutter_catalog PRIVATE FC_PATCH_BUILD_ROLE_MASK=${FC_CORE_ROLE_MASK})

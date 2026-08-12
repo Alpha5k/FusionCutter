@@ -44,9 +44,6 @@ int wmain(int argument_count, wchar_t** arguments) {
     }
 
     log("Fusion Cutter Quill acceptance marker");
-    if (mode == L"normal-exit") {
-        return ERROR_SUCCESS;
-    }
     if (mode == L"explicit-unload") {
         return FreeLibrary(module) ? ERROR_SUCCESS : static_cast<int>(GetLastError());
     }

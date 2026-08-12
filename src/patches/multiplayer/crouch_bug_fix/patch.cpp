@@ -7,8 +7,8 @@ namespace fusioncutter::patches::crouch_bug_fix {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<CrouchBugFix, TargetLayout::SteamRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<CrouchBugFix, TargetLayout::GOGRetail>(HostRole::Client, TargetImage::Game),
+    make_patch_variant<CrouchBugFix, TargetLayout::SteamRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<CrouchBugFix, TargetLayout::GOGRetail, HostRole::Client>(TargetImage::Game),
 };
 
 } // namespace

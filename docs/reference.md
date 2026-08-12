@@ -81,8 +81,8 @@ struct PatchDefinition {
     PresentationCategory category;
     std::string_view description;
     SettingsDefinition settings;
-    std::span<const PatchId> depends_on;
-    std::span<const PatchId> includes;
+    std::span<const PatchRelationship> depends_on;
+    std::span<const PatchRelationship> includes;
     std::span<const PatchVariant> variants;
 };
 ```
@@ -95,8 +95,8 @@ struct PatchDefinition {
 | `category` | Presentation grouping and order. |
 | `description` | Optional user-facing explanation; empty means no generated comment. |
 | `settings` | Default typed schema for the patch's variants; default construction means no dedicated settings. |
-| `depends_on` | Patch IDs that must install successfully first. |
-| `includes` | Companion patch IDs automatically selected with this patch; explicit disable wins. |
+| `depends_on` | Patch references that must install successfully first. |
+| `includes` | Companion patch references automatically selected with this patch; explicit disable wins. |
 | `variants` | Supported layout, role, image, timing, implementation, and failure-policy combinations. |
 
 Current shared categories from `<FusionCutter/categories.hpp>` are:
@@ -112,6 +112,20 @@ Current shared categories from `<FusionCutter/categories.hpp>` are:
 `PresentationCategory` has `name` and integer `order` fields.
 
 `PatchId` is `std::string_view` and must refer to stable catalog-owned text.
+
+### `PatchRelationship`
+
+Relationships apply to every variant unless they name a layout, role, or both:
+
+```cpp
+PatchRelationship(PatchId patch_id)
+PatchRelationship(PatchId patch_id, HostRole role)
+PatchRelationship(PatchId patch_id, TargetLayout layout)
+PatchRelationship(PatchId patch_id, TargetLayout layout, HostRole role)
+```
+
+The field containing the relationship supplies its meaning: `depends_on` makes it required, while `includes` selects
+it as an optional companion. Specified scopes must all match the active variant.
 
 ## Patch classes and lifecycle
 
@@ -172,38 +186,45 @@ It is a single-instance bridge, not a registry or subscriber system. Callbacks m
 Create descriptors with:
 
 ```cpp
-make_patch_variant<PatchType, TargetLayout, Settings = NoSettings>(
-    HostRole role,
+make_patch_variant<PatchType, TargetLayout, HostRole, Settings = NoSettings>(
     TargetImage image,
     ImageTiming image_timing = ImageTiming::Startup,
     StartupFailurePolicy failure_policy = StartupFailurePolicy::Local)
+```
+
+When a startup image is required, omit the default timing rather than spelling it out:
+
+```cpp
+make_patch_variant<PatchType, TargetLayout, HostRole, Settings>(
+    TargetImage::Game, StartupFailurePolicy::StartupRequired)
 ```
 
 The patch definition's schema is the default for every variant. When one role or target exposes different settings,
 pass that variant's schema after the image:
 
 ```cpp
-make_patch_variant<ServerTransport, TargetLayout::GOGRetail, DirectTransportSettings>(
-    HostRole::Server,
+make_patch_variant<ServerTransport, TargetLayout::GOGRetail, HostRole::Server, DirectTransportSettings>(
     TargetImage::Game,
     server_settings(),
-    ImageTiming::Startup,
     StartupFailurePolicy::StartupRequired)
 ```
 
-This changes only the settings generated and resolved for that exact variant; the patch keeps one stable identity and
-one toggle.
+`DirectTransportSettings` is the compile-time object type used by the factory and patch constructor.
+`server_settings()` is the schema override that defines its configuration metadata and parsing. The type remains an
+explicit template argument because `SettingsDefinition` is type-erased. This changes settings only for that exact
+variant; the patch keeps one stable identity and one toggle. Variants without dedicated settings omit both and use
+`NoSettings`.
 
 Collect them in `PatchVariants`:
 
 ```cpp
 const PatchVariants kVariants{
-    make_patch_variant<ExampleFix, TargetLayout::SteamRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<ExampleFix, TargetLayout::GOGRetail>(HostRole::Client, TargetImage::Game),
+    make_patch_variant<ExampleFix, TargetLayout::SteamRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<ExampleFix, TargetLayout::GOGRetail, HostRole::Client>(TargetImage::Game),
 };
 ```
 
-Variants for the other architecture are removed at compile time. Do not reproduce this dispatch with compiler architecture macros in patch code.
+Variants for other architectures or roles are removed at compile time. Do not reproduce this dispatch with compiler architecture macros in patch code.
 
 ### Target layouts
 
@@ -496,7 +517,7 @@ Expose the schema from the definition with:
 .settings = SettingsDefinition::from(SettingsSchema<MySettings>{...}),
 ```
 
-Name `MySettings` as the third `make_patch_variant` template argument. `NoSettings` is the default marker when no dedicated values exist.
+Name `MySettings` as the fourth `make_patch_variant` template argument. `NoSettings` is the default marker when no dedicated values exist.
 
 ## Environment values
 

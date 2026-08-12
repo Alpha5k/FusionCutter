@@ -7,9 +7,9 @@ namespace fusioncutter::patches::aerial_gravity {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<AerialGravity, TargetLayout::SteamRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<AerialGravity, TargetLayout::GOGRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<AerialGravity, TargetLayout::GOGRetail>(HostRole::Server, TargetImage::Game),
+    make_patch_variant<AerialGravity, TargetLayout::SteamRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<AerialGravity, TargetLayout::GOGRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<AerialGravity, TargetLayout::GOGRetail, HostRole::Server>(TargetImage::Game),
 };
 
 } // namespace

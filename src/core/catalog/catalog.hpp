@@ -31,6 +31,12 @@ struct PatchBuildEnvelope {
     return variant.settings_override.has_value() ? *variant.settings_override : definition.settings;
 }
 
+[[nodiscard]] inline constexpr bool relationship_applies_to(const PatchRelationship& relationship,
+                                                            const PatchVariant& variant) noexcept {
+    return (!relationship.layout.has_value() || *relationship.layout == variant.layout) &&
+           (!relationship.role.has_value() || *relationship.role == variant.role);
+}
+
 struct CatalogEntry {
     PatchId id;
     PatchDefinition definition;

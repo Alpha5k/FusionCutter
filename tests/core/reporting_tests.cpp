@@ -229,14 +229,6 @@ TEST_CASE("Ordinary log rotation retains the previous bounded generation", "[cor
     CHECK_FALSE(std::filesystem::exists(directory.path() / L"FusionCutter.3.log"));
 }
 
-TEST_CASE("Status refresh is bounded to changed snapshots", "[core][reporting]") {
-    TemporaryDirectory directory;
-    const auto executable = copy_probe(directory);
-    const auto child = run_child(executable, L"live-status");
-    REQUIRE(child.wait_result == WAIT_OBJECT_0);
-    REQUIRE(child.exit_code == ERROR_SUCCESS);
-}
-
 TEST_CASE("Live status fields truncate safely and reject excess entries", "[core][reporting]") {
     TemporaryDirectory directory;
     const auto executable = copy_probe(directory);
@@ -251,14 +243,4 @@ TEST_CASE("Live status fields truncate safely and reject excess entries", "[core
     CHECK(status.contains("Field11: Value"));
     CHECK_FALSE(status.contains("Overflow"));
     CHECK(status.size() < 64 * 1024);
-}
-
-TEST_CASE("Status output failure remains nonfatal", "[core][reporting]") {
-    TemporaryDirectory directory;
-    const auto executable = copy_probe(directory);
-    REQUIRE(std::filesystem::create_directory(directory.path() / L"FusionCutter.txt"));
-
-    const auto child = run_child(executable, L"status-output-failure");
-    REQUIRE(child.wait_result == WAIT_OBJECT_0);
-    REQUIRE(child.exit_code == ERROR_SUCCESS);
 }

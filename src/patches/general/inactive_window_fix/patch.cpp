@@ -65,11 +65,11 @@ class InactiveWindowFix final : public Patch {
 };
 
 const PatchVariants kVariants{
-    make_patch_variant<InactiveWindowFix, TargetLayout::SteamRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<InactiveWindowFix, TargetLayout::SteamRetail>(HostRole::Server, TargetImage::Game),
-    make_patch_variant<InactiveWindowFix, TargetLayout::GOGRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<InactiveWindowFix, TargetLayout::GOGRetail>(HostRole::Server, TargetImage::Game),
-    make_patch_variant<InactiveWindowFix, TargetLayout::ModTools>(HostRole::Client, TargetImage::Game),
+    make_patch_variant<InactiveWindowFix, TargetLayout::SteamRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<InactiveWindowFix, TargetLayout::SteamRetail, HostRole::Server>(TargetImage::Game),
+    make_patch_variant<InactiveWindowFix, TargetLayout::GOGRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<InactiveWindowFix, TargetLayout::GOGRetail, HostRole::Server>(TargetImage::Game),
+    make_patch_variant<InactiveWindowFix, TargetLayout::ModTools, HostRole::Client>(TargetImage::Game),
 };
 
 } // namespace
@@ -80,7 +80,7 @@ PatchDefinition definition() {
         .enabled = true,
         .configurable = true,
         .category = categories::GeneralFixes,
-        .description = "Prevent the game from throttling updates while the window is unfocused.",
+        .description = "Prevent the game from throttling updates while the window is inactive.",
         .variants = kVariants,
     };
 }

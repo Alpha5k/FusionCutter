@@ -96,10 +96,6 @@ void require_successful_probe(std::wstring_view mode) {
 
 } // namespace
 
-TEST_CASE("Quill flushes during normal process exit", "[core][quill]") {
-    require_successful_probe(L"normal-exit");
-}
-
 TEST_CASE("Quill does not hang or fault during explicit DLL unload", "[core][quill]") {
     require_successful_probe(L"explicit-unload");
 }

@@ -8,6 +8,7 @@
 #include "target.hpp"
 
 #include <atomic>
+#include <cstddef>
 #include <expected>
 #include <memory>
 #include <optional>
@@ -94,6 +95,24 @@ enum class StartupFailurePolicy {
     StartupRequired,
 };
 
+struct PatchRelationship {
+    PatchId patch_id;
+    std::optional<TargetLayout> layout;
+    std::optional<HostRole> role;
+
+    template <std::size_t Size>
+    constexpr PatchRelationship(const char (&patch_id)[Size]) noexcept : patch_id(patch_id) {}
+
+    constexpr PatchRelationship(PatchId patch_id) noexcept : patch_id(patch_id) {}
+
+    constexpr PatchRelationship(PatchId patch_id, HostRole role) noexcept : patch_id(patch_id), role(role) {}
+
+    constexpr PatchRelationship(PatchId patch_id, TargetLayout layout) noexcept : patch_id(patch_id), layout(layout) {}
+
+    constexpr PatchRelationship(PatchId patch_id, TargetLayout layout, HostRole role) noexcept
+        : patch_id(patch_id), layout(layout), role(role) {}
+};
+
 struct PatchVariant {
     TargetLayout layout;
     HostRole role;
@@ -113,8 +132,8 @@ struct PatchDefinition {
     PresentationCategory category;
     std::string_view description;
     SettingsDefinition settings;
-    std::span<const PatchId> depends_on;
-    std::span<const PatchId> includes;
+    std::span<const PatchRelationship> depends_on;
+    std::span<const PatchRelationship> includes;
     std::span<const PatchVariant> variants;
 };
 

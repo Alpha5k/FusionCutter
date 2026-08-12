@@ -1,3 +1,5 @@
+#include "../loader_harness.hpp"
+
 #include <FusionCutter/LoaderApi.h>
 
 #include <catch2/catch_session.hpp>
@@ -5,14 +7,10 @@
 
 #include <Windows.h>
 
-#include <array>
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <string>
 #include <string_view>
-#include <system_error>
 
 namespace {
 
@@ -23,78 +21,18 @@ using WasRequiredModuleLoadedFn = BOOL(FC_CALL*)();
 
 constexpr DWORD kFatalExitCode = 0xD1;
 
-#define FC_TEST_REQUIRE(expression)                                                                                    \
-    do {                                                                                                               \
-        if (!(expression)) {                                                                                           \
-            return __LINE__;                                                                                           \
-        }                                                                                                              \
-    } while (false)
-
-class TemporaryDirectory {
-  public:
-    TemporaryDirectory() {
-        std::array<wchar_t, 32'768> root{};
-        const auto length = GetTempPathW(static_cast<DWORD>(root.size()), root.data());
-        REQUIRE(length > 0);
-        REQUIRE(length < root.size());
-
-        path_ =
-            std::filesystem::path(root.data()) / (L"FusionCutter-rconserver-" + std::to_wstring(GetCurrentProcessId()) +
-                                                  L"-" + std::to_wstring(GetTickCount64()));
-        REQUIRE(std::filesystem::create_directory(path_));
-        REQUIRE(std::filesystem::create_directory(loader_directory()));
-        REQUIRE(std::filesystem::create_directory(working_directory()));
-    }
-
-    ~TemporaryDirectory() {
-        std::error_code ignored;
-        std::filesystem::remove_all(path_, ignored);
-    }
-
-    TemporaryDirectory(const TemporaryDirectory&) = delete;
-    TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
-
-    [[nodiscard]] std::filesystem::path loader_directory() const {
-        return path_ / L"loader";
-    }
-
-    [[nodiscard]] std::filesystem::path working_directory() const {
-        return path_ / L"working";
-    }
-
-  private:
-    std::filesystem::path path_;
-};
+using fusioncutter::tests::loader_harness::copy_artifact;
+using fusioncutter::tests::loader_harness::environment_path;
+using fusioncutter::tests::loader_harness::export_function;
+using fusioncutter::tests::loader_harness::read_file;
 
 enum class Setup {
     Complete,
     WorkingDirectoryCore,
 };
 
-[[nodiscard]] std::filesystem::path environment_path(const wchar_t* name) {
-    std::array<wchar_t, 32'768> value{};
-    const auto length = GetEnvironmentVariableW(name, value.data(), static_cast<DWORD>(value.size()));
-    if (length == 0 || length >= value.size()) {
-        return {};
-    }
-    return {std::wstring_view{value.data(), length}};
-}
-
-[[nodiscard]] std::filesystem::path executable_path() {
-    std::array<wchar_t, 32'768> value{};
-    const auto length = GetModuleFileNameW(nullptr, value.data(), static_cast<DWORD>(value.size()));
-    REQUIRE(length > 0);
-    REQUIRE(length < value.size());
-    return {std::wstring_view{value.data(), length}};
-}
-
-void copy_artifact(const std::filesystem::path& source, const std::filesystem::path& destination) {
-    REQUIRE(!source.empty());
-    REQUIRE(std::filesystem::copy_file(source, destination));
-}
-
-void prepare_probe(const TemporaryDirectory& directory, Setup setup) {
-    const auto loader_directory = directory.loader_directory();
+void prepare_probe(const fusioncutter::tests::loader_harness::Sandbox& directory, Setup setup) {
+    const auto loader_directory = directory.artifact_directory();
     const auto loader = environment_path(L"FC_RCONSERVER_TEST_DLL");
     const auto core = environment_path(L"FC_RCONSERVER_CORE_STUB");
     copy_artifact(loader, loader_directory / loader.filename());
@@ -108,42 +46,9 @@ void prepare_probe(const TemporaryDirectory& directory, Setup setup) {
 }
 
 [[nodiscard]] DWORD run_probe(std::string_view mode, Setup setup) {
-    TemporaryDirectory directory;
+    fusioncutter::tests::loader_harness::Sandbox directory{L"rconserver", L"loader"};
     prepare_probe(directory, setup);
-
-    const auto probe_directory = directory.loader_directory().wstring();
-    REQUIRE(SetEnvironmentVariableW(L"FC_RCONSERVER_PROBE_DIRECTORY", probe_directory.c_str()));
-
-    const auto executable = executable_path();
-    std::wstring command = L"\"" + executable.wstring() + L"\" --probe ";
-    command.append(mode.begin(), mode.end());
-
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION process{};
-    const auto working_directory = directory.working_directory().wstring();
-    const auto created = CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr,
-                                        working_directory.c_str(), &startup, &process);
-    REQUIRE(created);
-
-    const auto wait = WaitForSingleObject(process.hProcess, 30'000);
-    if (wait == WAIT_TIMEOUT) {
-        static_cast<void>(TerminateProcess(process.hProcess, ERROR_TIMEOUT));
-        static_cast<void>(WaitForSingleObject(process.hProcess, 5'000));
-    }
-
-    DWORD exit_code = STILL_ACTIVE;
-    static_cast<void>(GetExitCodeProcess(process.hProcess, &exit_code));
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
-    const std::string mode_text{mode};
-    CAPTURE(mode_text, wait, exit_code);
-    REQUIRE(wait == WAIT_OBJECT_0);
-    return exit_code;
-}
-
-template <typename Function> [[nodiscard]] Function export_function(HMODULE module, const char* name) noexcept {
-    return reinterpret_cast<Function>(GetProcAddress(module, name));
+    return fusioncutter::tests::loader_harness::run_probe(directory, L"FC_RCONSERVER_PROBE_DIRECTORY", mode);
 }
 
 template <typename Predicate> [[nodiscard]] bool wait_until(Predicate&& predicate) {
@@ -155,14 +60,6 @@ template <typename Predicate> [[nodiscard]] bool wait_until(Predicate&& predicat
         Sleep(10);
     }
     return predicate();
-}
-
-[[nodiscard]] std::string read_file(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        return {};
-    }
-    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
 
 struct StubApi {

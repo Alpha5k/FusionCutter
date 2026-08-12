@@ -7,8 +7,8 @@ namespace fusioncutter::patches::reload_duration {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<ReloadDurationFix, TargetLayout::SteamRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<ReloadDurationFix, TargetLayout::GOGRetail>(HostRole::Client, TargetImage::Game),
+    make_patch_variant<ReloadDurationFix, TargetLayout::SteamRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<ReloadDurationFix, TargetLayout::GOGRetail, HostRole::Client>(TargetImage::Game),
 };
 
 } // namespace
@@ -19,7 +19,7 @@ PatchDefinition definition() {
         .enabled = true,
         .configurable = true,
         .category = categories::Multiplayer,
-        .description = "Prevent weapon reloads and their sounds from repeatedly restarting online.",
+        .description = "Prevent weapon reload sounds from duplicating online.",
         .variants = kVariants,
     };
 }

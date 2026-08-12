@@ -21,7 +21,7 @@ class DistanceLagFix final : public Patch {
 };
 
 const PatchVariants kVariants{
-    make_patch_variant<DistanceLagFix, TargetLayout::GOGRetail>(HostRole::Server, TargetImage::Game),
+    make_patch_variant<DistanceLagFix, TargetLayout::GOGRetail, HostRole::Server>(TargetImage::Game),
 };
 
 } // namespace

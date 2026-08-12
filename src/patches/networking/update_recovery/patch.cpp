@@ -7,8 +7,8 @@ namespace fusioncutter::patches::update_recovery {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<LateUpdateRecovery, TargetLayout::SteamRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<LateUpdateRecovery, TargetLayout::GOGRetail>(HostRole::Client, TargetImage::Game),
+    make_patch_variant<LateUpdateRecovery, TargetLayout::SteamRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<LateUpdateRecovery, TargetLayout::GOGRetail, HostRole::Client>(TargetImage::Game),
 };
 
 } // namespace

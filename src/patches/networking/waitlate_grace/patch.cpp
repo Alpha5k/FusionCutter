@@ -20,7 +20,7 @@ class WaitlateGrace final : public Patch {
 };
 
 const PatchVariants kVariants{
-    make_patch_variant<WaitlateGrace, TargetLayout::GOGRetail>(HostRole::Server, TargetImage::Game),
+    make_patch_variant<WaitlateGrace, TargetLayout::GOGRetail, HostRole::Server>(TargetImage::Game),
 };
 
 } // namespace
@@ -31,7 +31,7 @@ PatchDefinition definition() {
         .enabled = true,
         .configurable = true,
         .category = categories::Networking,
-        .description = "Change /waitlate grace value from 3 turns to 1.",
+        .description = "Set the default /waitlate grace value from 3 turns to 1.",
         .variants = kVariants,
     };
 }

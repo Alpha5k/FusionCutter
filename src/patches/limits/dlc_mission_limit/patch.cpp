@@ -7,11 +7,11 @@ namespace fusioncutter::patches::dlc_mission_limit {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<DLCMissionLimit, TargetLayout::SteamRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<DLCMissionLimit, TargetLayout::SteamRetail>(HostRole::Server, TargetImage::Game),
-    make_patch_variant<DLCMissionLimit, TargetLayout::GOGRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<DLCMissionLimit, TargetLayout::GOGRetail>(HostRole::Server, TargetImage::Game),
-    make_patch_variant<DLCMissionLimit, TargetLayout::ModTools>(HostRole::Client, TargetImage::Game),
+    make_patch_variant<DLCMissionLimit, TargetLayout::SteamRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<DLCMissionLimit, TargetLayout::SteamRetail, HostRole::Server>(TargetImage::Game),
+    make_patch_variant<DLCMissionLimit, TargetLayout::GOGRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<DLCMissionLimit, TargetLayout::GOGRetail, HostRole::Server>(TargetImage::Game),
+    make_patch_variant<DLCMissionLimit, TargetLayout::ModTools, HostRole::Client>(TargetImage::Game),
 };
 
 } // namespace

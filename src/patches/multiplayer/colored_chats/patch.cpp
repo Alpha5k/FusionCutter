@@ -9,10 +9,10 @@ namespace fusioncutter::patches::colored_chats {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<ColoredChats, TargetLayout::SteamRetail, ColoredChatsSettings>(HostRole::Client,
-                                                                                      TargetImage::Game),
-    make_patch_variant<ColoredChats, TargetLayout::GOGRetail, ColoredChatsSettings>(HostRole::Client,
-                                                                                    TargetImage::Game),
+    make_patch_variant<ColoredChats, TargetLayout::SteamRetail, HostRole::Client, ColoredChatsSettings>(
+        TargetImage::Game),
+    make_patch_variant<ColoredChats, TargetLayout::GOGRetail, HostRole::Client, ColoredChatsSettings>(
+        TargetImage::Game),
 };
 
 } // namespace

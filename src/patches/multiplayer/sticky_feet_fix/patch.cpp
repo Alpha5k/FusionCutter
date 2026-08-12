@@ -7,7 +7,7 @@ namespace fusioncutter::patches::sticky_feet_fix {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<StickyFeetFix, TargetLayout::GOGRetail>(HostRole::Server, TargetImage::Game),
+    make_patch_variant<StickyFeetFix, TargetLayout::GOGRetail, HostRole::Server>(TargetImage::Game),
 };
 
 } // namespace

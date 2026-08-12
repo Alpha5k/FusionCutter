@@ -7,8 +7,8 @@ namespace fusioncutter::patches::door_corpse_fix {
 namespace {
 
 const PatchVariants kVariants{
-    make_patch_variant<DoorCorpseFix, TargetLayout::SteamRetail>(HostRole::Client, TargetImage::Game),
-    make_patch_variant<DoorCorpseFix, TargetLayout::GOGRetail>(HostRole::Client, TargetImage::Game),
+    make_patch_variant<DoorCorpseFix, TargetLayout::SteamRetail, HostRole::Client>(TargetImage::Game),
+    make_patch_variant<DoorCorpseFix, TargetLayout::GOGRetail, HostRole::Client>(TargetImage::Game),
 };
 
 } // namespace

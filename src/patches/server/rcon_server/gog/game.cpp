@@ -1,5 +1,6 @@
 #include "game.hpp"
 #include "../bounded_text.hpp"
+#include "command.hpp"
 #include "layout.hpp"
 
 #include <Windows.h>
@@ -151,8 +152,8 @@ std::string Game::execute_native(std::string_view command) {
     auto* details = image_.mutable_at_rva<std::uint8_t>(layout::kCommandDetailsRva);
     const auto previous_logged_in = std::exchange(*logged_in, std::uint8_t{1});
     const auto previous_details = std::exchange(*details, std::uint8_t{1});
-    const auto native_command = image_.function_at_rva<CommandFunction>(layout::kCommandRva);
-    static_cast<void>(native_command(-1, wide_command.data(), 0, 0));
+    static_cast<void>(
+        execute_native_command(image_.address_at_rva(layout::kCommandRva), -1, wide_command.data(), 0, 0));
     *details = previous_details;
     *logged_in = previous_logged_in;
 

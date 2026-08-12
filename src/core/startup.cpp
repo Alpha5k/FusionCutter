@@ -179,10 +179,15 @@ class StartupState::Impl {
         std::erase(unfinished, patch_id);
     }
 
-    [[nodiscard]] std::optional<OutcomeReason> unavailable_dependency(const catalog::CatalogEntry& entry,
+    [[nodiscard]] std::optional<OutcomeReason> unavailable_dependency(const catalog::SelectedPatch& selected,
                                                                       std::span<const PatchId> ready,
                                                                       bool waiting_patch) const {
-        for (const auto dependency : entry.definition.depends_on) {
+        for (const auto& relationship : selected.entry->definition.depends_on) {
+            if (!catalog::relationship_applies_to(relationship, *selected.variant)) {
+                continue;
+            }
+
+            const auto dependency = relationship.patch_id;
             if (std::ranges::contains(ready, dependency)) {
                 continue;
             }
@@ -199,6 +204,13 @@ class StartupState::Impl {
                                  "Resolve dependencies", dependency};
         }
         return {};
+    }
+
+    [[nodiscard]] bool has_waiting_dependency(const catalog::SelectedPatch& selected) const {
+        return std::ranges::any_of(selected.entry->definition.depends_on, [&](const auto& relationship) {
+            return catalog::relationship_applies_to(relationship, *selected.variant) &&
+                   result(relationship.patch_id).outcome == PatchOutcome::WaitingForImage;
+        });
     }
 
     void set_failed(const catalog::SelectedPatch& selected, OutcomeReason reason) {
@@ -315,14 +327,12 @@ class StartupState::Impl {
 
         for (std::size_t index = 0; index < pending.size();) {
             auto& waiting = pending[index];
-            if (std::ranges::any_of(waiting.entry->definition.depends_on, [&](PatchId dependency) {
-                    return result(dependency).outcome == PatchOutcome::WaitingForImage;
-                })) {
+            const catalog::SelectedPatch selected{waiting.entry, waiting.variant};
+            if (has_waiting_dependency(selected)) {
                 ++index;
                 continue;
             }
-            if (auto unavailable = unavailable_dependency(*waiting.entry, {}, false); unavailable.has_value()) {
-                const catalog::SelectedPatch selected{waiting.entry, waiting.variant};
+            if (auto unavailable = unavailable_dependency(selected, {}, false); unavailable.has_value()) {
                 set_skipped(selected, std::move(*unavailable));
                 pending.erase(pending.begin() + static_cast<std::ptrdiff_t>(index));
                 continue;
@@ -330,7 +340,6 @@ class StartupState::Impl {
 
             const auto image = probe(waiting.variant->layout, waiting.variant->role, waiting.variant->image);
             if (!image.has_value()) {
-                const catalog::SelectedPatch selected{waiting.entry, waiting.variant};
                 set_failed(selected, image.error());
                 pending.erase(pending.begin() + static_cast<std::ptrdiff_t>(index));
                 continue;
@@ -343,7 +352,6 @@ class StartupState::Impl {
             const auto& target = **image;
             if (target.layout != waiting.variant->layout || target.role != waiting.variant->role ||
                 target.image.identity != waiting.variant->image) {
-                const catalog::SelectedPatch selected{waiting.entry, waiting.variant};
                 set_failed(selected, startup_error("late-image probe returned the wrong target", "Recognize image"));
                 pending.erase(pending.begin() + static_cast<std::ptrdiff_t>(index));
                 continue;
@@ -471,7 +479,7 @@ StartupState run_startup(catalog::Catalog catalog, config::Configuration configu
             toggle != nullptr && toggle->error.has_value()) {
             state.impl_->set_failed(selected, *toggle->error);
         } else if (auto unavailable = state.impl_->unavailable_dependency(
-                       *selected.entry, planned, selected.variant->image_timing == ImageTiming::OneShotLate);
+                       selected, planned, selected.variant->image_timing == ImageTiming::OneShotLate);
                    unavailable.has_value()) {
             state.impl_->set_skipped(selected, std::move(*unavailable));
         } else {
@@ -506,7 +514,7 @@ StartupState run_startup(catalog::Catalog catalog, config::Configuration configu
     std::vector<PatchId> reserved;
     for (auto& candidate : candidates) {
         const catalog::SelectedPatch selected{candidate.entry, candidate.variant};
-        if (auto unavailable = state.impl_->unavailable_dependency(*candidate.entry, reserved, false);
+        if (auto unavailable = state.impl_->unavailable_dependency(selected, reserved, false);
             unavailable.has_value()) {
             candidate.eligible = false;
             state.impl_->set_skipped(selected, std::move(*unavailable));
@@ -534,8 +542,7 @@ StartupState run_startup(catalog::Catalog catalog, config::Configuration configu
         }
 
         const catalog::SelectedPatch selected{candidate.entry, candidate.variant};
-        if (auto unavailable = state.impl_->unavailable_dependency(*candidate.entry, {}, false);
-            unavailable.has_value()) {
+        if (auto unavailable = state.impl_->unavailable_dependency(selected, {}, false); unavailable.has_value()) {
             state.impl_->set_skipped(selected, std::move(*unavailable));
         } else {
             static_cast<void>(state.impl_->install(candidate, selected));
@@ -550,8 +557,8 @@ StartupState run_startup(catalog::Catalog catalog, config::Configuration configu
 
     for (std::size_t index = 0; index < state.impl_->pending.size();) {
         auto& waiting = state.impl_->pending[index];
-        if (auto unavailable = state.impl_->unavailable_dependency(*waiting.entry, {}, true); unavailable.has_value()) {
-            const catalog::SelectedPatch selected{waiting.entry, waiting.variant};
+        const catalog::SelectedPatch selected{waiting.entry, waiting.variant};
+        if (auto unavailable = state.impl_->unavailable_dependency(selected, {}, true); unavailable.has_value()) {
             state.impl_->set_skipped(selected, std::move(*unavailable));
             state.impl_->pending.erase(state.impl_->pending.begin() + static_cast<std::ptrdiff_t>(index));
         } else {

@@ -4,7 +4,6 @@
 #include <cassert>
 #include <cstddef>
 #include <expected>
-#include <numeric>
 #include <optional>
 #include <string>
 #include <utility>
@@ -21,8 +20,12 @@ namespace {
     return target_architecture(variant.layout) == scope.architecture && scope.includes(variant.role);
 }
 
+[[nodiscard]] bool applies_to_environment(const PatchVariant& variant, TargetLayout layout, HostRole role) noexcept {
+    return variant.layout == layout && variant.role == role;
+}
+
 [[nodiscard]] bool applies_to_environment(const PatchVariant& variant, const TargetContext& target) noexcept {
-    return variant.layout == target.layout && variant.role == target.role &&
+    return applies_to_environment(variant, target.layout, target.role) &&
            target_architecture(variant.layout) == target.image.architecture;
 }
 
@@ -54,67 +57,81 @@ namespace {
     return static_cast<std::size_t>(found - entries.begin());
 }
 
-[[nodiscard]] std::expected<void, OutcomeReason> validate_references(const Catalog& catalog) {
+[[nodiscard]] bool relationship_applies_to_entry(const PatchRelationship& relationship, const CatalogEntry& entry,
+                                                 CatalogScope scope) noexcept {
+    return std::ranges::any_of(entry.definition.variants, [&](const auto& variant) {
+        return applies_to_scope(variant, scope) && relationship_applies_to(relationship, variant);
+    });
+}
+
+[[nodiscard]] std::expected<void, OutcomeReason> validate_references(const Catalog& catalog, CatalogScope scope) {
     for (const auto& entry : catalog.entries()) {
-        for (const auto dependency : entry.definition.depends_on) {
-            if (catalog.find(dependency) == nullptr) {
-                return std::unexpected(
-                    catalog_error("required patch '" + std::string(dependency) + "' does not exist", entry.id));
+        for (const auto& dependency : entry.definition.depends_on) {
+            if (relationship_applies_to_entry(dependency, entry, scope) &&
+                catalog.find(dependency.patch_id) == nullptr) {
+                return std::unexpected(catalog_error(
+                    "required patch '" + std::string(dependency.patch_id) + "' does not exist", entry.id));
             }
         }
-        for (const auto selected : entry.definition.includes) {
-            if (catalog.find(selected) == nullptr) {
+        for (const auto& included : entry.definition.includes) {
+            if (relationship_applies_to_entry(included, entry, scope) && catalog.find(included.patch_id) == nullptr) {
                 return std::unexpected(catalog_error(
-                    "patch '" + std::string(selected) + "' referenced by includes does not exist", entry.id));
+                    "patch '" + std::string(included.patch_id) + "' referenced by includes does not exist", entry.id));
             }
         }
     }
     return {};
 }
 
+struct DependencyNode {
+    std::size_t index;
+    const PatchVariant* variant;
+};
+
 [[nodiscard]] std::expected<std::vector<std::size_t>, std::size_t>
-dependency_order(std::span<const CatalogEntry> entries, std::span<const std::size_t> included_indices) {
+dependency_order(std::span<const CatalogEntry> entries, std::span<const DependencyNode> nodes) {
     std::vector<bool> included(entries.size());
     std::vector<std::size_t> remaining_dependencies(entries.size());
-    for (const auto index : included_indices) {
-        included[index] = true;
+    for (const auto& node : nodes) {
+        included[node.index] = true;
     }
-    for (const auto index : included_indices) {
-        for (const auto dependency : entries[index].definition.depends_on) {
-            if (included[patch_index(entries, dependency)]) {
-                ++remaining_dependencies[index];
+    for (const auto& node : nodes) {
+        for (const auto& dependency : entries[node.index].definition.depends_on) {
+            if (relationship_applies_to(dependency, *node.variant) &&
+                included[patch_index(entries, dependency.patch_id)]) {
+                ++remaining_dependencies[node.index];
             }
         }
     }
 
     std::vector<bool> emitted(entries.size());
     std::vector<std::size_t> order;
-    order.reserve(included_indices.size());
-    while (order.size() != included_indices.size()) {
+    order.reserve(nodes.size());
+    while (order.size() != nodes.size()) {
         std::size_t next = entries.size();
-        for (const auto index : included_indices) {
-            if (!emitted[index] && remaining_dependencies[index] == 0) {
-                next = index;
+        for (const auto& node : nodes) {
+            if (!emitted[node.index] && remaining_dependencies[node.index] == 0) {
+                next = node.index;
                 break;
             }
         }
         if (next == entries.size()) {
-            for (const auto index : included_indices) {
-                if (!emitted[index]) {
-                    return std::unexpected(index);
+            for (const auto& node : nodes) {
+                if (!emitted[node.index]) {
+                    return std::unexpected(node.index);
                 }
             }
         }
 
         emitted[next] = true;
         order.push_back(next);
-        for (const auto index : included_indices) {
-            if (emitted[index]) {
+        for (const auto& node : nodes) {
+            if (emitted[node.index]) {
                 continue;
             }
-            for (const auto dependency : entries[index].definition.depends_on) {
-                if (dependency == entries[next].id) {
-                    --remaining_dependencies[index];
+            for (const auto& dependency : entries[node.index].definition.depends_on) {
+                if (relationship_applies_to(dependency, *node.variant) && dependency.patch_id == entries[next].id) {
+                    --remaining_dependencies[node.index];
                 }
             }
         }
@@ -122,14 +139,34 @@ dependency_order(std::span<const CatalogEntry> entries, std::span<const std::siz
     return order;
 }
 
-[[nodiscard]] std::expected<void, OutcomeReason> validate_required_graph(const Catalog& catalog) {
+[[nodiscard]] std::expected<void, OutcomeReason> validate_required_graph(const Catalog& catalog, CatalogScope scope) {
     const auto entries = catalog.entries();
-    std::vector<std::size_t> all_indices(entries.size());
-    std::iota(all_indices.begin(), all_indices.end(), 0);
+    std::vector<std::pair<TargetLayout, HostRole>> environments;
+    for (const auto& entry : entries) {
+        for (const auto& variant : entry.definition.variants) {
+            const auto environment = std::pair{variant.layout, variant.role};
+            if (applies_to_scope(variant, scope) && !std::ranges::contains(environments, environment)) {
+                environments.push_back(environment);
+            }
+        }
+    }
 
-    const auto order = dependency_order(entries, all_indices);
-    if (!order.has_value()) {
-        return std::unexpected(catalog_error("required patch dependency cycle detected", entries[order.error()].id));
+    for (const auto [layout, role] : environments) {
+        std::vector<DependencyNode> nodes;
+        for (std::size_t index = 0; index < entries.size(); ++index) {
+            const auto variant = std::ranges::find_if(entries[index].definition.variants, [&](const auto& candidate) {
+                return applies_to_environment(candidate, layout, role);
+            });
+            if (variant != entries[index].definition.variants.end()) {
+                nodes.push_back({index, &*variant});
+            }
+        }
+
+        const auto order = dependency_order(entries, nodes);
+        if (!order.has_value()) {
+            return std::unexpected(
+                catalog_error("required patch dependency cycle detected", entries[order.error()].id));
+        }
     }
     return {};
 }
@@ -247,13 +284,13 @@ std::expected<Catalog, OutcomeReason> initialize_catalog(std::vector<CatalogEntr
     }
 
     Catalog catalog(std::move(entries));
-    if (auto result = validate_references(catalog); !result.has_value()) {
-        return std::unexpected(std::move(result.error()));
-    }
-    if (auto result = validate_required_graph(catalog); !result.has_value()) {
-        return std::unexpected(std::move(result.error()));
-    }
     if (auto result = validate_definitions(catalog, scope); !result.has_value()) {
+        return std::unexpected(std::move(result.error()));
+    }
+    if (auto result = validate_references(catalog, scope); !result.has_value()) {
+        return std::unexpected(std::move(result.error()));
+    }
+    if (auto result = validate_required_graph(catalog, scope); !result.has_value()) {
         return std::unexpected(std::move(result.error()));
     }
     return catalog;
@@ -296,28 +333,32 @@ PatchSelection select_patches(const Catalog& catalog, const TargetContext& targe
 
     for (std::size_t cursor = 0; cursor < pending.size(); ++cursor) {
         const auto patch = pending[cursor];
-        const auto select_related = [&](PatchId id) {
-            const auto related_index = patch_index(entries, id);
+        const auto select_related = [&](const PatchRelationship& relationship) {
+            if (!relationship_applies_to(relationship, *states[patch].variant)) {
+                return;
+            }
+
+            const auto related_index = patch_index(entries, relationship.patch_id);
             auto& related = states[related_index];
             if (!related.selected && !related.explicitly_disabled && related.variant != nullptr) {
                 related.selected = true;
                 pending.push_back(related_index);
             }
         };
-        for (const auto dependency : entries[patch].definition.depends_on) {
+        for (const auto& dependency : entries[patch].definition.depends_on) {
             select_related(dependency);
         }
-        for (const auto related : entries[patch].definition.includes) {
+        for (const auto& related : entries[patch].definition.includes) {
             select_related(related);
         }
     }
 
     PatchSelection result;
-    std::vector<std::size_t> selected_indices;
+    std::vector<DependencyNode> selected;
     for (std::size_t index = 0; index < entries.size(); ++index) {
         const auto& state = states[index];
         if (state.selected) {
-            selected_indices.push_back(index);
+            selected.push_back({index, state.variant});
         } else if (state.explicitly_disabled || state.variant != nullptr) {
             result.disabled.push_back(&entries[index]);
         } else {
@@ -325,7 +366,7 @@ PatchSelection select_patches(const Catalog& catalog, const TargetContext& targe
         }
     }
 
-    const auto order = dependency_order(entries, selected_indices);
+    const auto order = dependency_order(entries, selected);
     assert(order.has_value());
     for (const auto index : *order) {
         result.install_order.push_back({&entries[index], states[index].variant});
