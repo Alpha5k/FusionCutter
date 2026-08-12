@@ -50,7 +50,7 @@ void Game::build_plan(PatchPlan& plan) {
 
     // Preserve the native FF 15 indirect call and replace only its IAT operand with our formatter slot.
     const auto expected_import = static_cast<std::uint32_t>(image_.address_at_rva(layout::kSnprintfImportRva));
-    plan.checked_write("Capture RCON chat", layout::kChatOperandRva, exact_pattern(expected_import),
+    plan.checked_write("Capture RCON chat", layout::kChatOperandRva, expected_import,
                        PatchAddress::absolute(&formatter_));
 }
 

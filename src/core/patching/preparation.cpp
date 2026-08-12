@@ -105,7 +105,7 @@ namespace {
                         return std::unexpected(
                             operation_failure("data-allocation initial values exceed its size", operation.name));
                     }
-                    if (spec.proximity && !storage.image.contains_rva(spec.proximity->rva, 1)) {
+                    if (spec.proximity && !storage.image.contains_rva(spec.proximity->anchor_rva, 1)) {
                         return std::unexpected(
                             operation_failure("data-allocation near RVA is outside the target image", operation.name));
                     }
@@ -152,15 +152,17 @@ namespace {
                                 operation_failure("redirect requires at least five replaceable bytes", operation.name));
                         }
                         if (spec.original_slot) {
-                            const auto exact_direct_call =
-                                spec.kind == RedirectKind::Call && spec.expected.bytes.front() == std::byte{0xE8} &&
+                            const auto expected_opcode =
+                                spec.kind == RedirectKind::Call ? std::byte{0xE8} : std::byte{0xE9};
+                            const auto exact_direct_branch =
+                                spec.expected.bytes.front() == expected_opcode &&
                                 (spec.expected.mask.empty() ||
                                  std::ranges::all_of(std::span{spec.expected.mask}.first<5>(), [](std::byte mask) {
                                      return mask == std::byte{0xFF};
                                  }));
-                            if (!exact_direct_call) {
+                            if (!exact_direct_branch) {
                                 return std::unexpected(operation_failure(
-                                    "typed original requires an exact direct-call preimage", operation.name));
+                                    "typed original requires an exact direct call or jump preimage", operation.name));
                             }
                         }
                         if (auto valid_address = validate_address(spec.destination, false); !valid_address) {
@@ -350,18 +352,18 @@ prepare_redirect(PreparedPatchPlan::Impl& prepared, const RedirectSpec& spec, st
         if (displacement >= 0) {
             const auto distance = static_cast<std::uintptr_t>(displacement);
             if (next_instruction > std::numeric_limits<std::uintptr_t>::max() - distance) {
-                return std::unexpected(operation_failure("direct-call target overflows the address space", name));
+                return std::unexpected(operation_failure("direct branch target overflows the address space", name));
             }
             original_destination = next_instruction + distance;
         } else {
             const auto distance = static_cast<std::uintptr_t>(-static_cast<std::int64_t>(displacement));
             if (next_instruction < distance) {
-                return std::unexpected(operation_failure("direct-call target underflows the address space", name));
+                return std::unexpected(operation_failure("direct branch target underflows the address space", name));
             }
             original_destination = next_instruction - distance;
         }
         if (original_destination == 0) {
-            return std::unexpected(operation_failure("direct-call target is null", name));
+            return std::unexpected(operation_failure("direct branch target is null", name));
         }
     }
 

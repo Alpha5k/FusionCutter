@@ -2,6 +2,8 @@
 
 #include <FusionCutter/patch.hpp>
 
+#include "../reporting/log_level.hpp"
+
 #include <cstddef>
 #include <expected>
 #include <filesystem>
@@ -89,7 +91,7 @@ class Configuration {
     std::size_t omitted_diagnostics_{};
     bool file_created_{};
     std::optional<OutcomeReason> output_error_;
-    LogLevel log_level_{compiled_default_log_level()};
+    LogLevel log_level_{reporting_detail::default_log_level()};
 };
 
 [[nodiscard]] std::expected<Configuration, OutcomeReason> load_configuration(const std::filesystem::path& path,

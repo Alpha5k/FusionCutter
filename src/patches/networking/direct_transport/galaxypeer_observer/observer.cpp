@@ -71,9 +71,9 @@ void GalaxyPeerObserver::build_plan(PatchPlan& plan) {
     if (!requested_) {
         return;
     }
-    gOriginal = plan.inline_hook("Observe the server public endpoint", layout_.get_external_id_rva,
-                                 BytePattern::exact(kGetExternalIdPreimage),
-                                 reinterpret_cast<GetExternalId>(&hook_get_external_id));
+    gOriginal = plan.inline_hook_with_original("Observe the server public endpoint", layout_.get_external_id_rva,
+                                               BytePattern::exact(kGetExternalIdPreimage),
+                                               reinterpret_cast<GetExternalId>(&hook_get_external_id));
 }
 
 void GalaxyPeerObserver::enable_runtime() noexcept {

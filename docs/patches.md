@@ -208,7 +208,8 @@ Most failures remain local: the affected patch and anything depending on it do n
 - **Remove instructions** with `nop()`.
 - **Verify an unchanged native dependency** with `require_bytes()`.
 - **Redirect a call or jump** with `redirect_call()` or `redirect_jump()`.
-- **Hook a whole function** with `inline_hook()` and retain its original callable target.
+- **Hook a whole function** with `inline_hook()`, or use `inline_hook_with_original()` when the callback must call the
+  original function.
 - **Hook an instruction inside a function** with `mid_hook()` and inspect or adjust the saved CPU context.
 - **Allocate read/write data** with `allocate_data()` and refer to it symbolically from other operations.
 

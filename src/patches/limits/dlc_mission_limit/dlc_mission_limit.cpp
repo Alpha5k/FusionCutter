@@ -27,8 +27,8 @@ void DLCMissionLimit::build_plan(PatchPlan& plan) {
     const auto legacy_table = image_.address_at_rva(legacy_table_rva(layout_));
     for (const auto& site : kMissionPointerSites) {
         const auto expected = legacy_table + site.table_offset;
-        plan.checked_write(site.operation, site_rva(site, layout_), exact_pattern(expected),
-                           mission_table.offset(site.table_offset));
+        plan.checked_write(site.operation, site_rva(site, layout_), expected,
+                           mission_table.byte_offset(site.table_offset));
     }
 }
 

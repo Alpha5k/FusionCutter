@@ -189,8 +189,8 @@ TEST_CASE("patch plans execute each fundamental operation") {
         page.write(kOffset, function_bytes);
 
         PatchPlan plan{"InlineHook", page.image()};
-        original_function = plan.inline_hook("detour test function", static_cast<std::uint32_t>(kOffset),
-                                             exact(hook_preimage), &inline_destination);
+        original_function = plan.inline_hook_with_original("detour test function", static_cast<std::uint32_t>(kOffset),
+                                                           exact(hook_preimage), &inline_destination);
         auto prepared = prepare(std::move(plan));
         reserve_and_commit(prepared);
 
@@ -198,6 +198,24 @@ TEST_CASE("patch plans execute each fundamental operation") {
         REQUIRE(page.function<TestFunction>(kOffset)() == 15);
         REQUIRE(prepared.rollback());
         REQUIRE_FALSE(original_function);
+        REQUIRE(page.function<TestFunction>(kOffset)() == 5);
+    }
+
+    SECTION("inline hook without original") {
+        constexpr std::size_t kOffset = 0x1C0;
+        const std::array function_bytes{std::byte{0xB8}, std::byte{0x05}, std::byte{},
+                                        std::byte{},     std::byte{},     std::byte{0xC3}};
+        const std::array hook_preimage{std::byte{0xB8}, std::byte{0x05}, std::byte{}, std::byte{}, std::byte{}};
+        page.write(kOffset, function_bytes);
+
+        PatchPlan plan{"InlineHookWithoutOriginal", page.image()};
+        plan.inline_hook("replace test function", static_cast<std::uint32_t>(kOffset), exact(hook_preimage),
+                         &redirect_destination);
+        auto prepared = prepare(std::move(plan));
+        reserve_and_commit(prepared);
+
+        REQUIRE(page.function<TestFunction>(kOffset)() == 9);
+        REQUIRE(prepared.rollback());
         REQUIRE(page.function<TestFunction>(kOffset)() == 5);
     }
 
@@ -257,6 +275,32 @@ TEST_CASE("patch plans execute each fundamental operation") {
         REQUIRE(page.function<TestFunction>(kOffset)() == 3);
     }
 
+    SECTION("jump redirect with typed original") {
+        constexpr std::size_t kOffset = 0x320;
+        constexpr std::size_t kOriginalDestination = 0x340;
+        const std::array destination_bytes{std::byte{0xB8}, std::byte{0x03}, std::byte{},
+                                           std::byte{},     std::byte{},     std::byte{0xC3}};
+        std::array caller_bytes{std::byte{0xE9}, std::byte{}, std::byte{}, std::byte{}, std::byte{}};
+        const auto original_displacement = static_cast<std::int32_t>(kOriginalDestination - (kOffset + 5));
+        std::memcpy(caller_bytes.data() + 1, &original_displacement, sizeof(original_displacement));
+        page.write(kOffset, caller_bytes);
+        page.write(kOriginalDestination, destination_bytes);
+
+        PatchPlan plan{"JumpRedirect", page.image()};
+        auto original =
+            plan.redirect_jump_with_original("replace jump destination", static_cast<std::uint32_t>(kOffset),
+                                             BytePattern::exact(caller_bytes), &redirect_destination);
+        auto prepared = prepare(std::move(plan));
+        reserve_and_commit(prepared);
+
+        REQUIRE(original);
+        REQUIRE(original.get()() == 3);
+        REQUIRE(page.function<TestFunction>(kOffset)() == 9);
+        REQUIRE(prepared.rollback());
+        REQUIRE_FALSE(original);
+        REQUIRE(page.function<TestFunction>(kOffset)() == 3);
+    }
+
     SECTION("owned data with a symbolic pointer write") {
         constexpr std::size_t kPointerOffset = 0x380;
         const std::uintptr_t null_pointer{};
@@ -265,9 +309,9 @@ TEST_CASE("patch plans execute each fundamental operation") {
         PatchPlan plan{"AllocateData", page.image()};
         const std::uint32_t initial_value = 0x1234'5678;
         auto data = plan.allocate_data<std::uint32_t>("allocate state", 1, std::span{&initial_value, 1},
-                                                      NearConstraint{0, 0x7FFF'FFFF});
-        plan.checked_write("publish state pointer", static_cast<std::uint32_t>(kPointerOffset),
-                           exact_pattern(null_pointer), data.base());
+                                                      AllocationProximity{0, 0x7FFF'FFFF});
+        plan.checked_write("publish state pointer", static_cast<std::uint32_t>(kPointerOffset), null_pointer,
+                           data.base());
         auto prepared = prepare(std::move(plan));
         reserve_and_commit(prepared);
 
@@ -281,7 +325,33 @@ TEST_CASE("patch plans execute each fundamental operation") {
     }
 }
 
-TEST_CASE("typed redirect originals require a direct call") {
+TEST_CASE("native field helpers support whole values and unaligned fields", "[core][patching]") {
+    std::array<std::byte, 8> storage{};
+    constexpr std::uint32_t whole_value = 0x1234'5678;
+    constexpr std::uint16_t field_value = 0xABCD;
+
+    write_native_field(storage.data(), whole_value);
+    write_native_field(storage.data(), 5, field_value);
+
+    CHECK(read_native_field<std::uint32_t>(storage.data()) == whole_value);
+    CHECK(read_native_field<std::uint16_t>(storage.data(), 5) == field_value);
+}
+
+TEST_CASE("native byte helpers embed architecture-sized addresses and signed displacements", "[core][patching]") {
+    std::array<std::byte, 8> image_storage{};
+    const ImageContext image{TargetImage::Game, sizeof(void*) == 4 ? Architecture::X86 : Architecture::X64,
+                             reinterpret_cast<std::uintptr_t>(image_storage.data()), image_storage.size()};
+
+    std::array<std::byte, sizeof(std::uintptr_t)> address_bytes{};
+    embed_image_address<0>(address_bytes, image, 4);
+    CHECK(read_native_field<std::uintptr_t>(address_bytes.data()) == image.base + 4);
+
+    auto short_branch = byte_array<0xEB, 0x00>();
+    embed_relative_displacement<1, std::int8_t>(short_branch, 0x1010, 0x1000);
+    CHECK(std::to_integer<unsigned int>(short_branch[1]) == 0xF0);
+}
+
+TEST_CASE("typed redirect originals require a matching direct branch") {
     ExecutablePage page;
     constexpr std::size_t kOffset = 0x100;
     const std::array not_a_call{std::byte{0x90}, std::byte{0x90}, std::byte{0x90}, std::byte{0x90}, std::byte{0x90}};
@@ -293,7 +363,7 @@ TEST_CASE("typed redirect originals require a direct call") {
     auto prepared = PreparedPatchPlan::prepare(std::move(plan));
 
     REQUIRE_FALSE(prepared);
-    CHECK(prepared.error().message.find("exact direct-call preimage") != std::string::npos);
+    CHECK(prepared.error().message.find("exact direct call or jump preimage") != std::string::npos);
     CHECK_FALSE(original);
 }
 
@@ -442,8 +512,7 @@ TEST_CASE("symbolic data references enforce their plan-local bounds") {
         auto data = allocation_plan.allocate_data<std::uint32_t>("private data", 1);
 
         PatchPlan foreign_plan{"ForeignReference", page.image()};
-        foreign_plan.checked_write("foreign pointer", static_cast<std::uint32_t>(kOffset), exact_pattern(null_pointer),
-                                   data.base());
+        foreign_plan.checked_write("foreign pointer", static_cast<std::uint32_t>(kOffset), null_pointer, data.base());
         auto prepared = PreparedPatchPlan::prepare(std::move(foreign_plan));
         REQUIRE_FALSE(prepared);
         REQUIRE(prepared.error().message.find("another patch plan") != std::string::npos);
@@ -452,8 +521,8 @@ TEST_CASE("symbolic data references enforce their plan-local bounds") {
     SECTION("an out-of-bounds offset fails before allocation") {
         PatchPlan plan{"OutOfBoundsReference", page.image()};
         auto data = plan.allocate_data<std::uint32_t>("private data", 1);
-        plan.checked_write("invalid pointer", static_cast<std::uint32_t>(kOffset), exact_pattern(null_pointer),
-                           data.offset(sizeof(std::uint32_t)));
+        plan.checked_write("invalid pointer", static_cast<std::uint32_t>(kOffset), null_pointer,
+                           data.byte_offset(sizeof(std::uint32_t)));
 
         auto prepared = PreparedPatchPlan::prepare(std::move(plan));
         REQUIRE_FALSE(prepared);

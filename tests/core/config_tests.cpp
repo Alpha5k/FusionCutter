@@ -33,6 +33,10 @@ constexpr std::array kTestModeChoices{
     fusioncutter::ChoiceValue{"Automatic", TestMode::Automatic},
     fusioncutter::ChoiceValue{"Manual", TestMode::Manual},
 };
+constexpr std::array kUnitBindings{
+    fusioncutter::KeyedStringSetting{"A", "Crouch", "Unit A action", 32},
+    fusioncutter::KeyedStringSetting{"B", "Roll", {}, 32},
+};
 static_assert(fusioncutter::choice_name(TestMode::Manual, kTestModeChoices) == "Manual");
 
 struct TestSettings {
@@ -63,8 +67,7 @@ struct TestSettings {
             },
         .groups =
             {
-                fusioncutter::keyed_string_group("Unit", &TestSettings::unit_bindings,
-                                                 {{"A", "Crouch", "Unit A action", 32}, {"B", "Roll", {}, 32}}),
+                fusioncutter::keyed_string_group("Unit", &TestSettings::unit_bindings, kUnitBindings),
             },
         .validate = validate_settings,
     });
@@ -111,7 +114,8 @@ template <typename PatchType, typename Settings = fusioncutter::NoSettings>
 test_variant(fusioncutter::TargetLayout layout, fusioncutter::HostRole role, fusioncutter::TargetImage image,
              fusioncutter::ImageTiming image_timing = fusioncutter::ImageTiming::Startup,
              fusioncutter::StartupFailurePolicy failure_policy = fusioncutter::StartupFailurePolicy::Local) {
-    return {layout, role, image, image_timing, failure_policy, fusioncutter::patch_factory<PatchType, Settings>()};
+    return {layout,       role,           image,
+            image_timing, failure_policy, fusioncutter::patch_detail::patch_factory<PatchType, Settings>()};
 }
 
 [[nodiscard]] fusioncutter::TargetContext steam_client_target() {
@@ -272,7 +276,7 @@ TEST_CASE("Variant settings keep role-specific configuration with one patch iden
             fusioncutter::TargetImage::Game,
             fusioncutter::ImageTiming::Startup,
             fusioncutter::StartupFailurePolicy::Local,
-            fusioncutter::patch_factory<ConfiguredPatch, TestSettings>(),
+            fusioncutter::patch_detail::patch_factory<ConfiguredPatch, TestSettings>(),
             server_settings,
         },
     };
@@ -312,7 +316,9 @@ TEST_CASE("Environment helpers distinguish absent, valid, and malformed patch in
     CHECK_FALSE(absent->has_value());
 
     REQUIRE(SetEnvironmentVariableA(name, "manual"));
-    auto choice = fusioncutter::read_environment_choice(name, kTestModeChoices);
+    auto choice =
+        fusioncutter::read_environment_choice(name, {fusioncutter::ChoiceValue{"Automatic", TestMode::Automatic},
+                                                     fusioncutter::ChoiceValue{"Manual", TestMode::Manual}});
     REQUIRE(choice.has_value());
     CHECK(*choice == TestMode::Manual);
 
@@ -328,7 +334,7 @@ TEST_CASE("Environment helpers distinguish absent, valid, and malformed patch in
 
     const std::string oversized(4097, 'A');
     REQUIRE(SetEnvironmentVariableA(name, oversized.c_str()));
-    const auto too_long = fusioncutter::read_environment_variable(name);
+    const auto too_long = fusioncutter::read_environment_value<std::string>(name);
     REQUIRE_FALSE(too_long.has_value());
     CHECK(too_long.error().message.contains("4096"));
 }
@@ -462,7 +468,11 @@ TEST_CASE("Invalid logging level keeps the compiled default and remains diagnost
 
     auto loaded = fusioncutter::config::load_configuration(path, {});
     REQUIRE(loaded.has_value());
-    CHECK(loaded->log_level() == fusioncutter::compiled_default_log_level());
+#if defined(_DEBUG)
+    CHECK(loaded->log_level() == fusioncutter::LogLevel::Debug);
+#else
+    CHECK(loaded->log_level() == fusioncutter::LogLevel::Error);
+#endif
     REQUIRE(loaded->diagnostics().size() == 1);
     CHECK(loaded->diagnostics().front().message.contains("expected Off, Error, Warning, Info, or Debug"));
 }

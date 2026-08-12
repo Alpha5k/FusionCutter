@@ -2,7 +2,6 @@
 
 #include <array>
 #include <cstdint>
-#include <cstring>
 #include <span>
 #include <utility>
 
@@ -33,8 +32,9 @@ constexpr auto kModToolsPrefix = byte_array<0x57>();
 constexpr auto kModToolsSuffix = byte_array<0x50, 0x51>();
 constexpr auto kModToolsCodeCave = byte_array<0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC>();
 
-constexpr FrameLimiterCode kRetailCode{kRetailPrefix, kRetailSuffix, {kCompatibleCodeCave, kCompatibleCodeCaveMask}};
-constexpr FrameLimiterCode kModToolsCode{kModToolsPrefix, kModToolsSuffix, {kModToolsCodeCave, {}}};
+constexpr FrameLimiterCode kRetailCode{kRetailPrefix, kRetailSuffix,
+                                       BytePattern::masked(kCompatibleCodeCave, kCompatibleCodeCaveMask)};
+constexpr FrameLimiterCode kModToolsCode{kModToolsPrefix, kModToolsSuffix, BytePattern::exact(kModToolsCodeCave)};
 
 constexpr FrameLimiterLayout kSteamLayout{0x0013AB7B, 0x0013AB19, kRetailCode};
 constexpr FrameLimiterLayout kGogLayout{0x0013B8DB, 0x0013B879, kRetailCode};
@@ -42,13 +42,11 @@ constexpr FrameLimiterLayout kModToolsLayout{0x0004E8C7, 0x0004E849, kModToolsCo
 
 constexpr std::uint32_t kUncappedDivisor = 0xFFFFFF80;
 
-[[nodiscard]] constexpr std::array<std::byte, 2> short_jump(std::uint32_t instruction_rva,
-                                                            std::uint32_t destination_rva) noexcept {
-    const auto displacement = static_cast<std::int64_t>(destination_rva) - instruction_rva - 2;
-    if (!std::in_range<std::int8_t>(displacement)) {
-        std::unreachable();
-    }
-    return {std::byte{0xEB}, std::byte{static_cast<std::uint8_t>(displacement)}};
+[[nodiscard]] std::array<std::byte, 2> short_jump(std::uint32_t instruction_rva,
+                                                  std::uint32_t destination_rva) noexcept {
+    auto jump = byte_array<0xEB, 0x00>();
+    embed_relative_displacement<1, std::int8_t>(jump, instruction_rva + jump.size(), destination_rva);
+    return jump;
 }
 
 [[nodiscard]] constexpr FrameLimiterLayout frame_limiter_layout(TargetLayout layout) noexcept {
@@ -86,16 +84,16 @@ void UnlockFrameRate::build_plan(PatchPlan& plan) {
 
     // The reviewed uncapped executables use 0xFFFFFF80, which yields no wait without dividing by zero.
     const auto divisor = max_frame_rate_ == 0 ? kUncappedDivisor : max_frame_rate_;
-    std::memcpy(extended_push.data() + 1, &divisor, sizeof(divisor));
+    embed_value<1>(extended_push, divisor);
 
     const auto return_jump = short_jump(layout.code_cave_rva + 5, layout.frame_rate_rva + 2);
-    std::memcpy(extended_push.data() + 5, return_jump.data(), return_jump.size());
+    embed_value<5>(extended_push, return_jump);
 
     plan.checked_write("Store extended frame rate limit", layout.code_cave_rva, code.code_cave_preimage, extended_push);
 
     const auto redirect = short_jump(layout.frame_rate_rva, layout.code_cave_rva);
-    plan.checked_write("Use extended frame rate limit", layout.frame_rate_rva, {kPushImmediate, kFrameRateSlotMask},
-                       redirect);
+    plan.checked_write("Use extended frame rate limit", layout.frame_rate_rva,
+                       BytePattern::masked(kPushImmediate, kFrameRateSlotMask), redirect);
 }
 
 } // namespace fusioncutter::patches::unlock_frame_rate

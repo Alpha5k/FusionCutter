@@ -129,7 +129,7 @@ resolve_settings(const catalog::SelectedPatch& selected, const config::Configura
     if (selected.entry->definition.configurable) {
         return configuration.resolve_settings(selected.entry->id);
     }
-    return settings_for_variant(selected.entry->definition, *selected.variant).make_defaults();
+    return catalog::variant_settings(selected.entry->definition, *selected.variant).make_defaults();
 }
 
 [[nodiscard]] std::expected<PatchCandidate, OutcomeReason>

@@ -27,7 +27,7 @@ void copy_status_text(std::array<char, Capacity>& destination, std::size_t& dest
 
 } // namespace
 
-bool StatusSection::set(std::string_view label, std::string_view value) noexcept {
+bool StatusSection::add(std::string_view label, std::string_view value) noexcept {
     if (label.empty() || size_ == fields_.size()) {
         return false;
     }

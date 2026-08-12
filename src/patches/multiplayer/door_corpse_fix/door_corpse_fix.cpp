@@ -45,7 +45,7 @@ void DoorCorpseFix::build_plan(PatchPlan& plan) {
     plan.require_bytes("Verify door query call frame", kDoorQueryCallRva + call.size(),
                        BytePattern::exact(kQueryCallCleanup));
     plan.require_bytes("Verify EntitySoldier RTTI getter", kSoldierRttiGetterRva,
-                       BytePattern{kRttiGetter, kRttiGetterMask});
+                       BytePattern::masked(kRttiGetter, kRttiGetterMask));
     // Redirect only EntityDoor's range query so other callers retain the unfiltered game behavior.
     original_query_ = plan.redirect_call_with_original("Filter the door object query", kDoorQueryCallRva,
                                                        BytePattern::exact(call), &DoorCorpseFix::query_hook);

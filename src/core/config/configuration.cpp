@@ -231,7 +231,7 @@ void append_comment(std::string& output, std::string_view comment) {
     });
 
     std::string output = "[Logging]\r\nLevel=";
-    output += compiled_default_log_level() == LogLevel::Debug ? "Debug" : "Error";
+    output += reporting_detail::default_log_level() == LogLevel::Debug ? "Debug" : "Error";
     output += "\r\n\r\n[Patches]\r\n";
     std::string_view previous_category;
     for (const auto& patch : sorted) {

@@ -6,18 +6,13 @@ This is the complete lookup for Fusion Cutter's patch-facing framework. Start wi
 
 | I want to... | Use | See |
 |---|---|---|
-| Register and compile a patch | `fc_patch()`, `fc_patch_sources()` | [Build manifest](#build-manifest) |
-| Choose its startup or runtime model | `Patch`, `RuntimePatch`, `RuntimeOnlyPatch` | [Patch classes](#patch-classes) |
-| Select releases, roles, images, and startup behavior | `make_patch_variant()`, `TargetContext` | [Variants](#variants) |
-| Require or automatically select another patch | `depends_on`, `includes` | [`PatchDefinition`](#patchdefinition) |
-| Validate, write, or remove native instructions | `BytePattern`, `checked_write()`, `nop()`, `require_bytes()` | [Writes and validation](#writes-and-validation) |
-| Hook or redirect game code and call the original | `inline_hook()`, `mid_hook()`, `redirect_*()`, `OriginalFunction` | [Hooks](#hooks) |
-| Allocate replacement data or access runtime state | `allocate_data()`, `ImageContext` | [Data allocation](#data-allocation) |
-| Add ordinary, choice, grouped, or mapped settings | `setting()`, `choice()`, settings groups | [Settings](#settings) |
-| Read a patch-owned host override | `read_environment_value()`, `read_environment_choice()` | [Environment values](#environment-values) |
-| Publish an instance or receive host updates | `PatchInstanceSlot<T>`, `Updatable` | [Callback bridge](#callback-bridge) |
-| Add diagnostic events or live status | `logging::*`, `StatusContributor` | [Reporting](#reporting) |
-| Return an actionable runtime failure | `OutcomeReason` | [Outcomes and failure reporting](#outcomes-and-failure-reporting) |
+| Register a patch and select its targets | `fc_patch()`, `PatchDefinition`, `make_patch_variant()` | [Patch identity and registration](#patch-identity-and-registration) |
+| Choose startup or runtime behavior | `Patch`, `RuntimePatch`, `RuntimeOnlyPatch` | [Patch classes and lifecycle](#patch-classes-and-lifecycle) |
+| Validate, write, hook, or redirect native code | `PatchPlan`, `BytePattern`, hook and redirect methods | [Memory and hook tools](#memory-and-hook-tools) |
+| Allocate data or access recognized game state | `allocate_data()`, `ImageContext`, native-field helpers | [Data allocation](#data-allocation), [Target access](#target-access) |
+| Declare settings or read an environment override | `setting()`, `choice()`, groups, environment helpers | [Settings](#settings), [Environment values](#environment-values) |
+| Bridge callbacks, receive updates, or publish status | `PatchInstanceSlot<T>`, `Updatable`, `StatusContributor` | [Patch classes and lifecycle](#patch-classes-and-lifecycle), [Reporting](#reporting) |
+| Report diagnostics or actionable failures | `logging::*`, `OutcomeReason` | [Reporting](#reporting), [Outcomes](#outcomes-and-failure-reporting) |
 | Build, test, and verify supported binaries | CMake, CTest, `FusionCutter-Verify.exe` | [Build and verification tools](#build-and-verification-tools) |
 
 The primary include for a patch is:
@@ -108,6 +103,7 @@ Current shared categories from `src/patches/categories.hpp` are:
 
 | Constant | Display name | Order |
 |---|---|---|
+| `categories::GeneralFixes` | General Fixes | `50` |
 | `categories::Limits` | Limits | `100` |
 | `categories::Multiplayer` | Multiplayer | `200` |
 | `categories::Networking` | Networking | `250` |
@@ -242,9 +238,12 @@ Patch code describes work only. The core owns preimage validation, range ownersh
 | API | Use |
 |---|---|
 | `byte_array<0x90, ...>()` | Create a `consteval std::array<std::byte, N>` without verbose `std::byte` entries. |
-| `BytePattern::exact(bytes)` | Require every bit to match. An empty mask represents exact matching. |
-| `BytePattern{bytes, mask}` | Compare only mask bits: `(actual & mask) == (expected & mask)`. |
-| `exact_pattern(value)` | Treat a trivially copyable value's object representation as an exact pattern. |
+| `BytePattern::exact(bytes)` | Require every bit to match. |
+| `BytePattern::masked(bytes, mask)` | Compare only mask bits: `(actual & mask) == (expected & mask)`. |
+| `NativeSite<N>{rva, expected, mask}` | Keep an RVA and owned expected bytes together. Omit `mask` for an exact site; `pattern()` returns the matching pattern. |
+| `embed_value<Offset>(bytes, value)` | Insert any trivially copyable fixed-width value with compile-time bounds checking. |
+| `embed_image_address<Offset>(bytes, image, rva)` | Insert the architecture-sized address resolved from an image RVA. |
+| `embed_relative_displacement<Offset, Type>(bytes, base_rva, target_rva)` | Insert a signed displacement of `Type` from the explicitly supplied native base RVA. `Type` defaults to `std::int32_t`. |
 
 A pattern must contain at least one byte. A nonempty mask must have the same size as the byte span and constrain at least one bit. The plan copies pattern storage, so local arrays do not need to outlive `build_plan()`.
 
@@ -255,8 +254,10 @@ A pattern must contain at least one byte. A nonempty mask must have the same siz
 | `checked_write(operation, rva, BytePattern expected, span<byte> replacement)` | Replace bytes after validating the preimage. Expected and replacement sizes must match. |
 | `checked_write(operation, rva, const T& expected, const T& replacement)` | Write one trivially copyable typed value using exact object bytes. |
 | `checked_write(operation, rva, BytePattern expected, PatchAddress replacement)` | Write a resolved native pointer. The expected size must equal the target pointer size. |
+| `checked_write(operation, rva, const T& expected, PatchAddress replacement)` | Pointer write with a typed expected native address or value. |
 | `nop(operation, rva, BytePattern expected)` | Replace the expected span with `0x90` bytes. |
 | `require_bytes(operation, rva, BytePattern expected)` | Prove an unchanged native dependency and claim a read range. |
+| `require_bytes(operation, rva, const T& expected)` | Prove one trivially copyable typed dependency using exact object bytes. |
 
 Read/read overlap is allowed. A mutation conflicting with another selected operation's mutation or required read causes a conflict. Do not duplicate validation with `require_bytes()` when an operation's own preimage already proves the fact.
 
@@ -264,7 +265,8 @@ Read/read overlap is allowed. A mutation conflicting with another selected opera
 
 | Method | Use and requirements |
 |---|---|
-| `inline_hook(operation, rva, expected, destination)` | Hook a whole function and return `OriginalFunction<Function>`. The preimage covers all instructions SafetyHook will replace. |
+| `inline_hook(operation, rva, expected, destination)` | Hook a whole function without retaining its original. The preimage covers all instructions SafetyHook will replace. |
+| `inline_hook_with_original(operation, rva, expected, destination)` | Hook a whole function and return its typed trampoline as `OriginalFunction<Function>`. |
 | `mid_hook(operation, rva, expected, MidHookCallback)` | Hook a reviewed instruction boundary and receive saved register state. The preimage covers the replaced instruction span. |
 
 Hooks are created disabled during preparation and enabled by the core during commit. Patches do not receive or toggle underlying SafetyHook objects.
@@ -290,17 +292,20 @@ The callback may adjust saved state for that reviewed boundary. It remains `noex
 |---|---|
 | `redirect(operation, rva, expected, RedirectKind, PatchAddress)` | Generic `Call` or `Jump` to an absolute, image-relative, or otherwise supported address. |
 | `redirect(operation, rva, expected, RedirectKind, Function)` | Function-pointer destination overload. |
+| `redirect_with_original(operation, rva, expected, RedirectKind, destination)` | Generic call or jump redirect that retains the exact direct branch's original target. |
 | `redirect_call(operation, rva, expected, destination)` | Convenience wrapper for `RedirectKind::Call`. |
 | `redirect_call_with_original(operation, rva, expected, destination)` | Redirect an exact direct `E8` call and retain its decoded original target. |
 | `redirect_jump(operation, rva, expected, destination)` | Convenience wrapper for `RedirectKind::Jump`. |
+| `redirect_jump_with_original(operation, rva, expected, destination)` | Redirect an exact direct `E9` jump and retain its decoded original target. |
 
 `RedirectKind` values are `Call` and `Jump`. Redirect preimages contain at least five replaceable bytes. The core writes `E8` or `E9`, calculates the displacement, and NOP-fills any remaining claimed bytes. It may create a near relay for an out-of-range x64 destination; an out-of-range x86 redirect fails.
 
-`redirect_call_with_original()` requires the first five bytes to be fully constrained and to begin with `E8`.
+The `*_with_original()` redirect methods require the first five bytes to be fully constrained and to begin with the
+matching direct-call (`E8`) or direct-jump (`E9`) opcode.
 
 ### Original functions
 
-`inline_hook()` and `redirect_call_with_original()` return `OriginalFunction<Function>`:
+`inline_hook_with_original()` and the redirect `*_with_original()` methods return `OriginalFunction<Function>`:
 
 | Method | Result |
 |---|---|
@@ -316,12 +321,13 @@ allocate_data<T>(
     operation,
     count,
     std::span<const T> initial_values = {},
-    std::optional<NearConstraint> proximity = std::nullopt)
+    std::optional<AllocationProximity> proximity = std::nullopt)
 ```
 
 `T` must be trivially copyable and non-const/non-volatile. The core allocates aligned read/write memory, zero-initializes it, copies any initial prefix, and owns it for the patch transaction/process lifetime.
 
-`NearConstraint{rva, maximum_distance}` requests data near an image RVA. Its default maximum distance is `0x7FFF'FFFF`.
+`AllocationProximity{anchor_rva, maximum_distance}` requests data near an image RVA. Its default maximum distance is
+`0x7FFF'FFFF`.
 
 `AllocatedData<T>` is the returned symbolic handle:
 
@@ -331,7 +337,7 @@ allocate_data<T>(
 | `explicit operator bool()` | Whether the handle owns a symbolic slot, not whether preparation has run. |
 | `base()` | Symbolic base `PatchAddress`. |
 | `element(index)` | Symbolic address of an in-range element; otherwise invalid. |
-| `offset(byte_offset)` | Symbolic byte-offset address; plan validation rejects an out-of-range use. |
+| `byte_offset(offset)` | Symbolic byte-offset address; plan validation rejects an out-of-range use. |
 | `data()` | Runtime `T*` after successful preparation, or `nullptr` before allocation/release. Never dereference it in `build_plan()`. |
 
 Allocation addresses may be written with the pointer-sized `checked_write()` overload. Redirect destinations cannot point to read/write patch data. The framework does not provide generic executable allocation.
@@ -343,7 +349,7 @@ Allocation addresses may be written with the pointer-sized `checked_write()` ove
 | `PatchAddress{}` | Invalid address; validation fails if an operation uses it. |
 | `PatchAddress::absolute(pointer)` | Absolute object or function pointer; null is rejected. |
 | `PatchAddress::image_rva(rva)` | Address resolved against the selected image during preparation. |
-| `AllocatedData::base()`, `element()`, `offset()` | Address inside plan-owned allocated data. |
+| `AllocatedData::base()`, `element()`, `byte_offset()` | Address inside plan-owned allocated data. |
 
 ## Target access
 
@@ -361,13 +367,25 @@ struct TargetContext {
 
 | Method | Result |
 |---|---|
-| `contains_rva(rva, extent)` | Whether the complete range belongs to the image. |
+| `contains_rva(rva, extent = 1)` | Whether the complete range belongs to the image. |
 | `address_at_rva(rva, extent = 1)` | Absolute address, or `0` when the range/address is invalid. |
 | `function_at_rva<Function>(rva)` | Typed function pointer, or `nullptr`. |
 | `read_at_rva<T>(rva)` | Aligned pointer to read-only game-owned state, or `nullptr`. |
+| `read_at_rva<T>(rva, count)` | Aligned read-only span covering `count` objects, or an empty span. |
 | `mutable_at_rva<T>(rva)` | Aligned pointer to mutable game-owned runtime state, or `nullptr`. |
+| `mutable_at_rva<T>(rva, count)` | Aligned mutable span covering `count` runtime objects, or an empty span. |
 
 Bounds checks establish only that an address is inside the recognized image. The plan must still validate every native helper, hook, write site, and ABI fact it relies on. `mutable_at_rva()` is for ordinary game-owned runtime state; installation writes belong to `PatchPlan`.
+
+For verified unaligned fields in native objects and stack frames:
+
+| Function | Result |
+|---|---|
+| `read_native_field<T>(object, offset = 0)` | Copy a trivially copyable field without alignment or aliasing assumptions. |
+| `write_native_field(object, value)` | Copy a complete trivially copyable value into validated runtime storage. |
+| `write_native_field(object, offset, value)` | Copy a trivially copyable value into a validated runtime field. |
+
+These helpers do not validate pointers or native layouts. The patch must reject null owners and prove the relevant ABI before using them.
 
 ## Settings
 
@@ -414,7 +432,9 @@ choice("Mode", &Settings::mode, Mode::Automatic,
 
 `choice()` accepts its values as an initializer list, `std::array`, or `std::span` and returns a choice builder supporting `.description(text)`. The default must appear in the list. Names must be nonempty and unique under ASCII case-insensitive comparison; user input is matched the same way.
 
-`choice_name(value, choices)` accepts the same `std::array` or `std::span` metadata and returns the matching user-facing name, or an empty `std::string_view` when the value is absent. It is useful for status output and diagnostics that should use the same names as configuration.
+`choice_name(value, choices)` accepts the same initializer-list, `std::array`, or `std::span` metadata and returns the
+matching user-facing name, or an empty `std::string_view` when the value is absent. It is useful for status output and
+diagnostics that should use the same names as configuration.
 
 ### Settings groups
 
@@ -439,6 +459,9 @@ keyed_string_group<ControllerSettings>(
 ```
 
 `KeyedStringSetting` fields are `key`, `default_value`, optional `description`, and `maximum_length`; zero means no explicit maximum. Users cannot add arbitrary keys through this API.
+
+`keyed_string_group()` accepts its declarations as an initializer list, `std::array`, or `std::span`. Use an array for
+large fixed maps so the metadata can remain separately named and readable.
 
 `KeyedStrings` provides:
 
@@ -497,16 +520,16 @@ Both helpers return `std::expected<std::optional<T>, OutcomeReason>`:
 - a value means parsing succeeded; and
 - an unexpected result describes an unreadable, oversized, or malformed value.
 
-`read_environment_variable()` provides the same three-state result for a bounded raw string. It accepts at most 4096
-bytes. Scalar parsing uses the same Boolean, integer, finite floating-point, and string rules as typed settings;
-choice matching is ASCII case-insensitive. These helpers do not select patches, mutate settings automatically, log,
-or assign failure policy.
+Use `read_environment_value<std::string>()` for bounded raw text. Environment values accept at most 4096 bytes.
+`read_environment_choice()` accepts its choices as an initializer list, `std::array`, or `std::span`. Scalar parsing
+uses the same Boolean, integer, finite floating-point, and string rules as typed settings; choice matching is ASCII
+case-insensitive. These helpers do not select patches, mutate settings automatically, log, or assign failure policy.
 
 ## Reporting
 
 ### Logging
 
-`LogLevel` values are `Off`, `Error`, `Warning`, `Info`, and `Debug`. `compiled_default_log_level()` is `Debug` in Debug builds and `Error` otherwise.
+`LogLevel` values are `Off`, `Error`, `Warning`, `Info`, and `Debug`.
 
 All patch logging calls are `noexcept`:
 
@@ -529,7 +552,7 @@ perform their own filtering.
 Implement `StatusContributor::write_status(StatusSection&) const noexcept` for small live values. Add fields with:
 
 ```cpp
-bool StatusSection::set(std::string_view label, std::string_view value) noexcept;
+bool StatusSection::add(std::string_view label, std::string_view value) noexcept;
 ```
 
 The return value indicates whether the full input fit. A section accepts at most 12 fields; labels have 48-byte capacity and values 192-byte capacity. Empty labels and excess fields are rejected. Oversized text is truncated safely, and carriage returns/newlines become spaces.
@@ -616,53 +639,12 @@ Simple checked writes and hooks normally rely on common plan tests and the verif
 
 Use the executable matching the image architecture. The verifier privately maps each image, constructs every matching patch variant with compiled defaults, validates and reserves each plan, and mutates every declared critical dependency to prove rejection. It does not launch the game or modify the source file.
 
-## Framework-owned public types
+## Framework plumbing
 
-These types are public because the catalog and configuration adapters use them. Ordinary patch implementations normally encounter them only through the builders documented above.
-
-### Variant and factory plumbing
-
-| Type or function | Purpose |
-|---|---|
-| `PatchVariant` | Materialized layout, role, image, timing, failure policy, and factory. |
-| `PatchVariants<...>` | Architecture-filtered descriptor collection convertible to `span<const PatchVariant>`. |
-| `PatchFactory` | Settings type plus catalog construction function. |
-| `patch_factory<PatchType, Settings>()` | Creates the type-erased factory and verifies constructor shape. |
-| `PatchInstance` | `variant<unique_ptr<Patch>, unique_ptr<RuntimeOnlyPatch>>`. |
-| `PatchBuildEnvelope` | Generated artifact booleans `x86`, `x64`, `client`, `server` with `supports(Architecture)` and `supports(HostRole)`. |
-| `settings_for_variant()` | Returns a variant override when present, otherwise the definition's default schema. |
-
-Patch authors should use `make_patch_variant()` and `PatchVariants` instead of constructing these records manually.
-
-### Settings metadata and type erasure
-
-| Type | Public surface |
-|---|---|
-| `SettingMetadata` | `group`, `key`, `description`, `kind`, `default_value`, `choices`. |
-| `SettingEntry<Settings>` | Metadata, default applier, value applier, optional metadata error. |
-| `SettingsGroup<Settings>` | Group `name` and typed `values`. |
-| `SettingsValidator<Settings>` | Validator function-pointer alias. |
-| `ChoiceValue<Choice>` | User-facing `name` and enum `value`. |
-| `KeyedStringSetting` | `key`, `default_value`, `description`, `maximum_length`. |
-| `KeyedStringValue` | Completed owned `key` and `value`. |
-
-`SettingsDefinition` normally appears only as `SettingsDefinition::from(schema)`. Its complete public surface is:
-
-| Method | Core use |
-|---|---|
-| default constructor | Represents `NoSettings`. |
-| `from(SettingsSchema<Settings>)` | Type-erases one schema. |
-| `settings_type()` | Returns the schema `type_index`, or `NoSettings`. |
-| `metadata()` | Returns flattened metadata. |
-| `validate_metadata()` | Checks builder and uniqueness constraints. |
-| `make_defaults()` | Creates resolved default settings. |
-| `find(group, key)` | Case-insensitive lookup returning an optional index. |
-| `apply(settings, index, value)` | Converts and applies one configuration value. |
-| `validate(settings)` | Runs the patch validator. |
-
-`ResolvedSettings` is movable, noncopyable type-erased factory plumbing. Its public operations are `make(value)`, `is<Settings>()`, and rvalue-only `take<Settings>()`. Patch constructors receive the concrete type and should not use `ResolvedSettings` directly.
-
-`PatchPlan(PatchId, ImageContext)` is movable and noncopyable, but patch code does not construct or retain plans.
+Some public headers necessarily expose materialized catalog and type-erasure records used by the builders. They are
+framework plumbing, not a second patch-author API. Use `make_patch_variant()`, `PatchVariants`,
+`SettingsDefinition::from()`, and the concrete settings object received by the patch; do not manually construct or
+retain factory, resolved-settings, catalog-envelope, or patch-instance records.
 
 ## Deliberately unavailable
 

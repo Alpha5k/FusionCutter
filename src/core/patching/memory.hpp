@@ -31,7 +31,7 @@ class DataAllocation {
     ~DataAllocation();
 
     [[nodiscard]] static std::expected<DataAllocation, std::string>
-    create(std::size_t size, std::size_t alignment, const ImageContext& image, const NearConstraint* proximity);
+    create(std::size_t size, std::size_t alignment, const ImageContext& image, const AllocationProximity* proximity);
 
     [[nodiscard]] std::uintptr_t address() const noexcept {
         return address_;

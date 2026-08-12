@@ -1,5 +1,6 @@
 #include "session.hpp"
 
+#include "log_level.hpp"
 #include "status.hpp"
 
 #include <quill/Backend.h>
@@ -327,7 +328,7 @@ class Session::State {
         }
         started_ = true;
         role_ = requested_role;
-        level_.store(compiled_default_log_level(), std::memory_order_relaxed);
+        level_.store(reporting_detail::default_log_level(), std::memory_order_relaxed);
 
         const auto paths = support_paths(role_);
         if (!paths.has_value()) {
@@ -394,7 +395,7 @@ class Session::State {
     std::mutex start_mutex_;
     bool started_{};
     HostRole role_{HostRole::Client};
-    std::atomic<LogLevel> level_{compiled_default_log_level()};
+    std::atomic<LogLevel> level_{reporting_detail::default_log_level()};
     std::filesystem::path log_path_;
     std::unique_ptr<LogWriter> writer_;
     std::unique_ptr<StatusPublisher> status_;

@@ -109,7 +109,9 @@ std::vector<Claim> PreparedPatchPlan::Impl::claims() const {
 void PreparedPatchPlan::Impl::release_resources() {
     for (auto& operation : operations) {
         if (auto* hook = std::get_if<PreparedInlineHook>(&operation.state)) {
-            hook->original_slot->store(0, std::memory_order_release);
+            if (hook->original_slot) {
+                hook->original_slot->store(0, std::memory_order_release);
+            }
         } else if (auto* redirect = std::get_if<PreparedRedirect>(&operation.state);
                    redirect != nullptr && redirect->original_slot) {
             redirect->original_slot->store(0, std::memory_order_release);
@@ -167,7 +169,9 @@ std::expected<void, OutcomeReason> PreparedPatchPlan::Impl::rollback_operations(
                             return std::unexpected(
                                 operation_failure("inline-hook rollback verification failed", operation.name));
                         }
-                        operation_state.original_slot->store(0, std::memory_order_release);
+                        if (operation_state.original_slot) {
+                            operation_state.original_slot->store(0, std::memory_order_release);
+                        }
                     } else if constexpr (std::same_as<State, PreparedMidHook>) {
                         if (auto disabled = operation_state.hook.disable(); !disabled) {
                             return std::unexpected(operation_failure(mid_hook_error(disabled.error()), operation.name));

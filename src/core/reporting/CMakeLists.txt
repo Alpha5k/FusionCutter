@@ -3,6 +3,7 @@ add_library(fusioncutter_reporting STATIC
     bounded_writer.hpp
     crash_reporter.cpp
     crash_reporter.hpp
+    log_level.hpp
     session.cpp
     session.hpp
     status.cpp

@@ -184,7 +184,7 @@ DataAllocation::~DataAllocation() {
 
 std::expected<DataAllocation, std::string> DataAllocation::create(std::size_t size, std::size_t alignment,
                                                                   const ImageContext& image,
-                                                                  const NearConstraint* proximity) {
+                                                                  const AllocationProximity* proximity) {
     if (size == 0 || alignment == 0 || !std::has_single_bit(alignment) ||
         size > std::numeric_limits<std::size_t>::max() - (alignment - 1)) {
         return std::unexpected("invalid data-allocation size or alignment");
@@ -195,12 +195,12 @@ std::expected<DataAllocation, std::string> DataAllocation::create(std::size_t si
     if (proximity == nullptr) {
         allocation = VirtualAlloc(nullptr, allocation_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     } else {
-        if (!image.contains_rva(proximity->rva, 1) ||
-            image.base > std::numeric_limits<std::uintptr_t>::max() - proximity->rva) {
+        if (!image.contains_rva(proximity->anchor_rva, 1) ||
+            image.base > std::numeric_limits<std::uintptr_t>::max() - proximity->anchor_rva) {
             return std::unexpected("data-allocation near RVA is outside the target image");
         }
         allocation =
-            allocate_near(image.base + proximity->rva, proximity->maximum_distance, allocation_size, alignment);
+            allocate_near(image.base + proximity->anchor_rva, proximity->maximum_distance, allocation_size, alignment);
     }
 
     if (allocation == nullptr) {

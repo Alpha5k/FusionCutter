@@ -67,9 +67,9 @@ void ServerTransport::shutdown() noexcept {
 }
 
 void ServerTransport::write_status(StatusSection& output) const noexcept {
-    static_cast<void>(output.set("Policy", policy_name(policy_)));
+    output.add("Policy", policy_name(policy_));
     if (policy_ == Policy::Disabled) {
-        static_cast<void>(output.set("State", "Disabled"));
+        output.add("State", "Disabled");
         return;
     }
 
@@ -79,28 +79,28 @@ void ServerTransport::write_status(StatusSection& output) const noexcept {
     } else {
         std::snprintf(socket, sizeof(socket), "Unavailable");
     }
-    static_cast<void>(output.set("Socket", socket));
+    output.add("Socket", socket);
 
     const auto public_ipv4 = public_ipv4_.load(std::memory_order_acquire);
     if (public_ipv4 != 0) {
         char endpoint[48]{};
-        static_cast<void>(output.set("PublicEndpoint", format_endpoint({public_ipv4, game_port_}, endpoint)));
+        output.add("PublicEndpoint", format_endpoint({public_ipv4, game_port_}, endpoint));
     } else if (endpoint_unavailable_.load(std::memory_order_acquire)) {
-        static_cast<void>(output.set("PublicEndpoint", "Unavailable"));
+        output.add("PublicEndpoint", "Unavailable");
     } else {
-        static_cast<void>(output.set("PublicEndpoint", "Waiting for Galaxy"));
+        output.add("PublicEndpoint", "Waiting for Galaxy");
     }
 
     char routes[80]{};
     std::snprintf(routes, sizeof(routes), "Direct %u, Galaxy %u, Negotiating %u",
                   direct_count_.load(std::memory_order_acquire), galaxy_count_.load(std::memory_order_acquire),
                   negotiating_count_.load(std::memory_order_acquire));
-    static_cast<void>(output.set("PlayerRoutes", routes));
+    output.add("PlayerRoutes", routes);
     const auto thread_violations = network_thread_.rejected_calls();
     if (thread_violations != 0) {
         char violations[32]{};
         std::snprintf(violations, sizeof(violations), "%llu", static_cast<unsigned long long>(thread_violations));
-        static_cast<void>(output.set("ThreadViolations", violations));
+        output.add("ThreadViolations", violations);
     }
 }
 

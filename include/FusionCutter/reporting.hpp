@@ -16,14 +16,6 @@ enum class LogLevel {
     Debug,
 };
 
-[[nodiscard]] constexpr LogLevel compiled_default_log_level() noexcept {
-#if defined(_DEBUG)
-    return LogLevel::Debug;
-#else
-    return LogLevel::Error;
-#endif
-}
-
 namespace logging {
 
 [[nodiscard]] bool enabled(LogLevel level) noexcept;
@@ -60,7 +52,7 @@ class StatusPublisher;
 
 class StatusSection {
   public:
-    [[nodiscard]] bool set(std::string_view label, std::string_view value) noexcept;
+    bool add(std::string_view label, std::string_view value) noexcept;
 
   private:
     StatusSection() = default;

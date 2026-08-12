@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <span>
 #include <type_traits>
 #include <utility>
 
@@ -49,7 +50,7 @@ struct ImageContext {
     std::uintptr_t base;
     std::size_t size;
 
-    [[nodiscard]] constexpr bool contains_rva(std::uint32_t rva, std::size_t extent) const noexcept {
+    [[nodiscard]] constexpr bool contains_rva(std::uint32_t rva, std::size_t extent = 1) const noexcept {
         const auto offset = static_cast<std::size_t>(rva);
         return offset <= size && extent <= size - offset;
     }
@@ -88,6 +89,25 @@ struct ImageContext {
         requires(std::is_object_v<T> && !std::is_void_v<T>)
     [[nodiscard]] const T* read_at_rva(std::uint32_t rva) const noexcept {
         return mutable_at_rva<T>(rva);
+    }
+
+    template <typename T>
+        requires(std::is_object_v<T> && !std::is_void_v<T> && !std::is_array_v<T>)
+    [[nodiscard]] std::span<T> mutable_at_rva(std::uint32_t rva, std::size_t count) const noexcept {
+        if (count == 0 || count > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
+            return {};
+        }
+        const auto address = address_at_rva(rva, count * sizeof(T));
+        if (address == 0 || address % alignof(T) != 0) {
+            return {};
+        }
+        return {reinterpret_cast<T*>(address), count};
+    }
+
+    template <typename T>
+        requires(std::is_object_v<T> && !std::is_void_v<T> && !std::is_array_v<T>)
+    [[nodiscard]] std::span<const T> read_at_rva(std::uint32_t rva, std::size_t count) const noexcept {
+        return mutable_at_rva<T>(rva, count);
     }
 };
 

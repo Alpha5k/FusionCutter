@@ -63,7 +63,7 @@ struct AllocationSpec {
     std::size_t element_size;
     std::size_t alignment;
     std::vector<std::byte> initial_values;
-    std::optional<NearConstraint> proximity;
+    std::optional<AllocationProximity> proximity;
     std::shared_ptr<std::atomic<std::uintptr_t>> slot;
 };
 

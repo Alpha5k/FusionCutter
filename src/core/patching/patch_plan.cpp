@@ -98,7 +98,7 @@ void PatchPlan::add_redirect(std::string_view operation, std::uint32_t rva, Byte
 
 void PatchPlan::add_allocation(std::string_view operation, std::size_t count, std::size_t element_size,
                                std::size_t alignment, std::span<const std::byte> initial_values,
-                               std::optional<NearConstraint> proximity,
+                               std::optional<AllocationProximity> proximity,
                                std::shared_ptr<std::atomic<std::uintptr_t>> slot) {
     add_operation(*storage_, operation,
                   patching_detail::AllocationSpec{count,

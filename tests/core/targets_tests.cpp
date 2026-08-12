@@ -166,6 +166,7 @@ TEST_CASE("Known mapped image is recognized without modification", "[core][targe
     using SyntheticFunction = void (*)();
     CHECK(result->context.image.address_at_rva(kMarkerRva, kMarker.size()) == base + kMarkerRva);
     CHECK(result->context.image.address_at_rva(kImageSize) == 0);
+    CHECK(result->context.image.contains_rva(kMarkerRva));
     CHECK(result->context.image.function_at_rva<SyntheticFunction>(kMarkerRva) != nullptr);
     CHECK(result->context.image.function_at_rva<SyntheticFunction>(kImageSize) == nullptr);
 
@@ -173,6 +174,10 @@ TEST_CASE("Known mapped image is recognized without modification", "[core][targe
     REQUIRE(marker != nullptr);
     CHECK(std::memcmp(marker->data(), kMarker.data(), kMarker.size()) == 0);
     CHECK(result->context.image.mutable_at_rva<std::array<std::byte, kMarker.size()>>(kMarkerRva) == marker);
+    const auto marker_range = result->context.image.read_at_rva<std::byte>(kMarkerRva, kMarker.size());
+    CHECK(std::ranges::equal(marker_range, kMarker));
+    CHECK(result->context.image.mutable_at_rva<std::byte>(kMarkerRva, kMarker.size()).data() == marker_range.data());
+    CHECK(result->context.image.read_at_rva<std::uint32_t>(kImageSize - 2, 1).empty());
     CHECK(result->context.image.read_at_rva<std::uint32_t>(kImageSize - 2) == nullptr);
     CHECK(result->context.image.mutable_at_rva<std::uint32_t>(kImageSize - 2) == nullptr);
     CHECK(std::ranges::equal(image, image_before));

@@ -30,8 +30,8 @@ class LiveStatus final : public fusioncutter::StatusContributor {
 
     void write_status(fusioncutter::StatusSection& output) const noexcept override {
         const auto state = state_.load(std::memory_order_relaxed);
-        static_cast<void>(output.set("State", state == State::Idle ? "Idle" : "Connected"));
-        static_cast<void>(output.set("Route", "Direct"));
+        output.add("State", state == State::Idle ? "Idle" : "Connected");
+        output.add("Route", "Direct");
     }
 
     void set_state(State state) noexcept {
@@ -51,11 +51,11 @@ class BoundedStatus final : public fusioncutter::StatusContributor {
     }
 
     void write_status(fusioncutter::StatusSection& output) const noexcept override {
-        static_cast<void>(output.set("Long", std::string_view(long_value_.data(), long_value_.size())));
+        output.add("Long", std::string_view(long_value_.data(), long_value_.size()));
         for (const auto label : kLabels) {
-            static_cast<void>(output.set(label, "Value"));
+            output.add(label, "Value");
         }
-        static_cast<void>(output.set("Overflow", "Must not be rendered"));
+        output.add("Overflow", "Must not be rendered");
     }
 
   private:

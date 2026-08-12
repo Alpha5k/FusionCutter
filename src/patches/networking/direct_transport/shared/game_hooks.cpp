@@ -254,30 +254,30 @@ void GameHooks::build_plan(PatchPlan& plan) {
     plan.require_bytes("Validate local lobby callback", layout_.local_lobby_left_callback_rva,
                        BytePattern::exact(kLocalLobbyLeftCallbackPreimage));
 
-    gFinalSendOriginal =
-        plan.inline_hook("Route final online sends", layout_.final_send_rva, BytePattern::exact(kFinalSendPreimage),
-                         reinterpret_cast<RawFunction>(&hook_final_send));
-    gGroupSendOriginal =
-        plan.inline_hook("Hold one carrier per native group", layout_.group_send_rva,
-                         BytePattern::exact(kGroupSendPreimage), reinterpret_cast<RawFunction>(&hook_group_send));
-    gReceiveOriginal = plan.inline_hook("Pump Direct Transport receives", layout_.receive_rva,
-                                        BytePattern::exact(kReceivePreimage), &hook_receive);
-    gIntakeOriginal = plan.inline_hook("Observe native packet intake", layout_.intake_rva,
-                                       BytePattern::exact(kIntakePreimage), &hook_intake);
-    gDisconnectOriginal = plan.inline_hook("End disconnected associations", layout_.disconnect_rva,
-                                           BytePattern::exact(kDisconnectPreimage), &hook_disconnect);
-    gResetOriginal =
-        plan.inline_hook("End reset associations", layout_.reset_rva, BytePattern::exact(kResetPreimage), &hook_reset);
+    gFinalSendOriginal = plan.inline_hook_with_original("Route final online sends", layout_.final_send_rva,
+                                                        BytePattern::exact(kFinalSendPreimage),
+                                                        reinterpret_cast<RawFunction>(&hook_final_send));
+    gGroupSendOriginal = plan.inline_hook_with_original("Hold one carrier per native group", layout_.group_send_rva,
+                                                        BytePattern::exact(kGroupSendPreimage),
+                                                        reinterpret_cast<RawFunction>(&hook_group_send));
+    gReceiveOriginal = plan.inline_hook_with_original("Pump Direct Transport receives", layout_.receive_rva,
+                                                      BytePattern::exact(kReceivePreimage), &hook_receive);
+    gIntakeOriginal = plan.inline_hook_with_original("Observe native packet intake", layout_.intake_rva,
+                                                     BytePattern::exact(kIntakePreimage), &hook_intake);
+    gDisconnectOriginal = plan.inline_hook_with_original("End disconnected associations", layout_.disconnect_rva,
+                                                         BytePattern::exact(kDisconnectPreimage), &hook_disconnect);
+    gResetOriginal = plan.inline_hook_with_original("End reset associations", layout_.reset_rva,
+                                                    BytePattern::exact(kResetPreimage), &hook_reset);
 
     gRemoteMemberOriginal = image_.function_at_rva<RemoteMemberFunction>(layout_.remote_member_callback_rva);
     gLocalLobbyLeftOriginal = image_.function_at_rva<LocalLobbyLeftFunction>(layout_.local_lobby_left_callback_rva);
     const auto remote_expected = static_cast<std::uint32_t>(image_.address_at_rva(layout_.remote_member_callback_rva));
     const auto local_expected =
         static_cast<std::uint32_t>(image_.address_at_rva(layout_.local_lobby_left_callback_rva));
-    plan.checked_write("Observe remote lobby departures", layout_.remote_member_listener_rva,
-                       exact_pattern(remote_expected), PatchAddress::absolute(&hook_remote_member));
-    plan.checked_write("Observe local lobby departure", layout_.local_lobby_left_listener_rva,
-                       exact_pattern(local_expected), PatchAddress::absolute(&hook_local_lobby_left));
+    plan.checked_write("Observe remote lobby departures", layout_.remote_member_listener_rva, remote_expected,
+                       PatchAddress::absolute(&hook_remote_member));
+    plan.checked_write("Observe local lobby departure", layout_.local_lobby_left_listener_rva, local_expected,
+                       PatchAddress::absolute(&hook_local_lobby_left));
 }
 
 void GameHooks::enable(GameTransport& transport) noexcept {

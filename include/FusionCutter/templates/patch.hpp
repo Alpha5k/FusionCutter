@@ -34,8 +34,6 @@ template <typename PatchType, typename Settings>
     }
 }
 
-} // namespace patch_detail
-
 template <typename PatchType, typename Settings = NoSettings>
     requires(std::derived_from<PatchType, Patch> || std::derived_from<PatchType, RuntimeOnlyPatch>)
 [[nodiscard]] PatchFactory patch_factory() noexcept {
@@ -46,8 +44,6 @@ template <typename PatchType, typename Settings = NoSettings>
     }
     return {typeid(Settings), &patch_detail::construct_patch<PatchType, Settings>};
 }
-
-namespace patch_detail {
 
 template <typename PatchType, TargetLayout Layout, typename Settings> struct PatchVariantDescriptor {
     static constexpr auto layout = Layout;

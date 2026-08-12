@@ -82,24 +82,24 @@ void ClientTransport::write_status(StatusSection& output) const noexcept {
     } else {
         std::snprintf(socket, sizeof(socket), "Unavailable (using Galaxy)");
     }
-    static_cast<void>(output.set("Socket", socket));
+    output.add("Socket", socket);
 
     const auto route = published_route_.load(std::memory_order_acquire);
-    static_cast<void>(output.set("Route", route_name(route)));
+    output.add("Route", route_name(route));
     const auto reason = published_reason_.load(std::memory_order_acquire);
     if (reason != RouteReason::None) {
-        static_cast<void>(output.set("Reason", route_reason_name(reason)));
+        output.add("Reason", route_reason_name(reason));
     }
     const auto endpoint = unpack_endpoint(published_endpoint_.load(std::memory_order_acquire));
     if (endpoint.valid()) {
         char server[48]{};
-        static_cast<void>(output.set("Server", format_endpoint(endpoint, server)));
+        output.add("Server", format_endpoint(endpoint, server));
     }
     const auto thread_violations = network_thread_.rejected_calls();
     if (thread_violations != 0) {
         char violations[32]{};
         std::snprintf(violations, sizeof(violations), "%llu", static_cast<unsigned long long>(thread_violations));
-        static_cast<void>(output.set("ThreadViolations", violations));
+        output.add("ThreadViolations", violations);
     }
 }
 

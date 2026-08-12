@@ -6,7 +6,7 @@
 #include <string>
 #include <utility>
 
-namespace fusioncutter {
+namespace fusioncutter::environment_detail {
 namespace {
 
 constexpr std::size_t kMaximumEnvironmentValue = 4096;
@@ -17,7 +17,7 @@ constexpr std::size_t kMaximumEnvironmentValue = 4096;
 
 } // namespace
 
-std::expected<std::optional<std::string>, OutcomeReason> read_environment_variable(std::string_view name) {
+std::expected<std::optional<std::string>, OutcomeReason> read_variable(std::string_view name) {
     if (name.empty() || name.contains('\0') || name.contains('=')) {
         return std::unexpected(environment_error(name, "environment variable name is invalid"));
     }
@@ -44,4 +44,4 @@ std::expected<std::optional<std::string>, OutcomeReason> read_environment_variab
     return std::optional<std::string>{std::string(value.data(), length)};
 }
 
-} // namespace fusioncutter
+} // namespace fusioncutter::environment_detail

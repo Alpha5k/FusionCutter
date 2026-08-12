@@ -153,7 +153,7 @@ dependency_order(std::span<const CatalogEntry> entries, std::span<const std::siz
     bool applies_to_artifact = false;
     for (std::size_t index = 0; index < entry.definition.variants.size(); ++index) {
         const auto& variant = entry.definition.variants[index];
-        const auto& settings = settings_for_variant(entry.definition, variant);
+        const auto& settings = variant_settings(entry.definition, variant);
         if (variant.factory.construct == nullptr || variant.factory.settings_type != settings.settings_type()) {
             return std::unexpected(
                 catalog_error("variant factory is missing or uses the wrong settings type", entry.id));
@@ -264,7 +264,7 @@ std::vector<config::ApplicablePatch> configurable_patches(const Catalog& catalog
     for (const auto& entry : catalog.entries()) {
         const auto* variant = applicable_variant(entry, target);
         if (entry.definition.configurable && variant != nullptr) {
-            result.push_back({entry.id, &entry.definition, &settings_for_variant(entry.definition, *variant)});
+            result.push_back({entry.id, &entry.definition, &variant_settings(entry.definition, *variant)});
         }
     }
     return result;

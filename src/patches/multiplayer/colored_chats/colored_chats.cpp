@@ -137,7 +137,8 @@ void ColoredChats::build_plan(PatchPlan& plan) {
     plan.require_bytes("Verify team chat field", target.display_rva + kChannelCheckOffset,
                        BytePattern::exact(kChannelCheck));
 
-    original_queue_ = plan.inline_hook("Keep queued chat text on one line", target.queue_rva,
+    original_queue_ =
+        plan.inline_hook_with_original("Keep queued chat text on one line", target.queue_rva,
                                        BytePattern::exact(kQueuePrologue), &ColoredChats::queue_chat_message);
     plan.mid_hook("Color team and admin chat", target.display_rva + kColorHookOffset, BytePattern::exact(kColorHook),
                   &ColoredChats::color_chat_message);

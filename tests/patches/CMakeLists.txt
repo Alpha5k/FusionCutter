@@ -1,2 +1,5 @@
 add_subdirectory(networking/direct_transport)
+add_subdirectory(networking/update_recovery)
+add_subdirectory(multiplayer/spectator_camera)
+add_subdirectory(multiplayer/weapon_swap_replay)
 add_subdirectory(server/rcon_server)

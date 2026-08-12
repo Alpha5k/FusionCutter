@@ -18,7 +18,6 @@ namespace {
 using fusioncutter::Architecture;
 using fusioncutter::HostRole;
 using fusioncutter::ImageTiming;
-using fusioncutter::PatchBuildEnvelope;
 using fusioncutter::PatchDefinition;
 using fusioncutter::PatchId;
 using fusioncutter::PatchVariant;
@@ -29,6 +28,7 @@ using fusioncutter::TargetImage;
 using fusioncutter::TargetLayout;
 using fusioncutter::catalog::CatalogEntry;
 using fusioncutter::catalog::CatalogScope;
+using fusioncutter::catalog::PatchBuildEnvelope;
 
 class FixturePatch final : public fusioncutter::Patch {
   public:
@@ -40,7 +40,8 @@ template <typename PatchType, typename Settings = fusioncutter::NoSettings>
 [[nodiscard]] PatchVariant test_variant(TargetLayout layout, HostRole role, TargetImage image,
                                         ImageTiming image_timing = ImageTiming::Startup,
                                         StartupFailurePolicy failure_policy = StartupFailurePolicy::Local) {
-    return {layout, role, image, image_timing, failure_policy, fusioncutter::patch_factory<PatchType, Settings>()};
+    return {layout,       role,           image,
+            image_timing, failure_policy, fusioncutter::patch_detail::patch_factory<PatchType, Settings>()};
 }
 
 struct TypedSettings {

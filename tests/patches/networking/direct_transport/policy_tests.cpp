@@ -29,7 +29,7 @@ class EnvironmentRestore {
 TEST_CASE("Direct Transport environment policy overrides only its configured server policy",
           "[patches][direct_transport]") {
     constexpr auto variable = "BF2_DIRECT_POLICY";
-    auto original = fusioncutter::read_environment_variable(variable);
+    auto original = fusioncutter::read_environment_value<std::string>(variable);
     REQUIRE(original.has_value());
     const EnvironmentRestore restore(std::move(*original));
 

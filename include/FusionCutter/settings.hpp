@@ -74,6 +74,14 @@ class KeyedStrings;
 
 template <typename Settings>
 [[nodiscard]] SettingsGroup<Settings> keyed_string_group(std::string_view name, KeyedStrings Settings::* member,
+                                                         std::span<const KeyedStringSetting> values);
+
+template <typename Settings, std::size_t Size>
+[[nodiscard]] SettingsGroup<Settings> keyed_string_group(std::string_view name, KeyedStrings Settings::* member,
+                                                         const std::array<KeyedStringSetting, Size>& values);
+
+template <typename Settings>
+[[nodiscard]] SettingsGroup<Settings> keyed_string_group(std::string_view name, KeyedStrings Settings::* member,
                                                          std::initializer_list<KeyedStringSetting> values);
 
 class KeyedStrings {
@@ -86,7 +94,7 @@ class KeyedStrings {
   private:
     template <typename Settings>
     friend SettingsGroup<Settings> keyed_string_group(std::string_view name, KeyedStrings Settings::* member,
-                                                      std::initializer_list<KeyedStringSetting> values);
+                                                      std::span<const KeyedStringSetting> values);
 
     void set(std::string_view key, std::string value);
 
@@ -208,6 +216,11 @@ template <typename Choice, std::size_t Size>
     requires std::is_enum_v<Choice>
 [[nodiscard]] constexpr std::string_view choice_name(Choice value,
                                                      const std::array<ChoiceValue<Choice>, Size>& choices) noexcept;
+
+template <typename Choice>
+    requires std::is_enum_v<Choice>
+[[nodiscard]] constexpr std::string_view choice_name(Choice value,
+                                                     std::initializer_list<ChoiceValue<Choice>> choices) noexcept;
 
 template <typename Settings>
 [[nodiscard]] SettingsGroup<Settings> settings_group(std::string_view name,

@@ -372,9 +372,15 @@ constexpr std::string_view choice_name(Choice value, const std::array<ChoiceValu
     return choice_name(value, std::span<const ChoiceValue<Choice>>(choices));
 }
 
+template <typename Choice>
+    requires std::is_enum_v<Choice>
+constexpr std::string_view choice_name(Choice value, std::initializer_list<ChoiceValue<Choice>> choices) noexcept {
+    return choice_name(value, std::span(choices.begin(), choices.size()));
+}
+
 template <typename Settings>
 SettingsGroup<Settings> keyed_string_group(std::string_view name, KeyedStrings Settings::* member,
-                                           std::initializer_list<KeyedStringSetting> values) {
+                                           std::span<const KeyedStringSetting> values) {
     SettingsGroup<Settings> group{std::string(name), {}};
     group.values.reserve(values.size());
     for (const auto& value : values) {
@@ -403,6 +409,18 @@ SettingsGroup<Settings> keyed_string_group(std::string_view name, KeyedStrings S
         group.values.push_back(std::move(entry));
     }
     return group;
+}
+
+template <typename Settings, std::size_t Size>
+SettingsGroup<Settings> keyed_string_group(std::string_view name, KeyedStrings Settings::* member,
+                                           const std::array<KeyedStringSetting, Size>& values) {
+    return keyed_string_group(name, member, std::span<const KeyedStringSetting>(values));
+}
+
+template <typename Settings>
+SettingsGroup<Settings> keyed_string_group(std::string_view name, KeyedStrings Settings::* member,
+                                           std::initializer_list<KeyedStringSetting> values) {
+    return keyed_string_group(name, member, std::span(values.begin(), values.size()));
 }
 
 template <typename Settings>

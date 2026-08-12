@@ -37,9 +37,9 @@ void AspyrRcon::build_plan(PatchPlan& plan) {
                        BytePattern::exact(aspyr::layout::kAuthenticatedCallPreimage));
     plan.require_bytes("Validate Lua wrapper", aspyr::layout::kLuaWrapperRva,
                        BytePattern::exact(aspyr::layout::kLuaWrapperPreimage));
-    original_ = plan.inline_hook("Add RCON Lua command", aspyr::layout::kCommandRva,
-                                 BytePattern::exact(aspyr::layout::kCommandPreimage),
-                                 static_cast<CommandFunction>(&command_hook));
+    original_ = plan.inline_hook_with_original("Add RCON Lua command", aspyr::layout::kCommandRva,
+                                               BytePattern::exact(aspyr::layout::kCommandPreimage),
+                                               static_cast<CommandFunction>(&command_hook));
 }
 
 void AspyrRcon::enable_runtime() noexcept {

@@ -5,8 +5,11 @@
 
 #include <array>
 #include <atomic>
+#include <cassert>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -32,15 +35,72 @@ struct BytePattern {
     // An empty mask means exact matching. Otherwise, only set mask bits are compared.
     std::span<const std::byte> mask;
 
-    [[nodiscard]] static BytePattern exact(std::span<const std::byte> bytes) noexcept {
+    [[nodiscard]] static constexpr BytePattern exact(std::span<const std::byte> bytes) noexcept {
         return {bytes, {}};
+    }
+
+    [[nodiscard]] static constexpr BytePattern masked(std::span<const std::byte> bytes,
+                                                      std::span<const std::byte> mask) noexcept {
+        return {bytes, mask};
     }
 };
 
-template <typename T>
-    requires std::is_trivially_copyable_v<T>
-[[nodiscard]] BytePattern exact_pattern(const T& value) noexcept {
-    return BytePattern::exact(std::as_bytes(std::span{&value, 1}));
+// Keeps a native RVA and its owned expected pattern together in target layout data.
+template <std::size_t Size> struct NativeSite {
+    std::uint32_t rva;
+    std::array<std::byte, Size> expected;
+    std::optional<std::array<std::byte, Size>> mask;
+
+    [[nodiscard]] BytePattern pattern() const noexcept {
+        return mask.has_value() ? BytePattern::masked(expected, *mask) : BytePattern::exact(expected);
+    }
+};
+
+// Embeds one fixed-width value into a native byte pattern with compile-time bounds checking.
+template <std::size_t Offset, std::size_t Size, typename Value>
+    requires std::is_trivially_copyable_v<Value>
+void embed_value(std::array<std::byte, Size>& bytes, const Value& value) noexcept {
+    static_assert(Offset + sizeof(Value) <= Size);
+    std::memcpy(bytes.data() + Offset, &value, sizeof(value));
+}
+
+// Embeds an architecture-sized absolute address resolved from the selected image.
+template <std::size_t Offset, std::size_t Size>
+void embed_image_address(std::array<std::byte, Size>& bytes, const ImageContext& image, std::uint32_t rva) noexcept {
+    const auto address = image.address_at_rva(rva);
+    assert(address != 0);
+    embed_value<Offset>(bytes, address);
+}
+
+// Embeds a signed displacement relative to the supplied native base RVA.
+template <std::size_t Offset, std::signed_integral Displacement = std::int32_t, std::size_t Size>
+void embed_relative_displacement(std::array<std::byte, Size>& bytes, std::uint32_t displacement_base_rva,
+                                 std::uint32_t target_rva) noexcept {
+    const auto difference = static_cast<std::int64_t>(target_rva) - static_cast<std::int64_t>(displacement_base_rva);
+    assert(std::in_range<Displacement>(difference));
+    embed_value<Offset>(bytes, static_cast<Displacement>(difference));
+}
+
+// Read an unaligned field from a verified native object or stack frame.
+template <typename Value>
+    requires std::is_trivially_copyable_v<Value>
+[[nodiscard]] Value read_native_field(const void* object, std::size_t offset = 0) noexcept {
+    Value value{};
+    std::memcpy(&value, static_cast<const std::byte*>(object) + offset, sizeof(value));
+    return value;
+}
+
+// Write an unaligned runtime field after the patch has validated its native owner.
+template <typename Value>
+    requires std::is_trivially_copyable_v<Value>
+void write_native_field(void* object, std::size_t offset, const Value& value) noexcept {
+    std::memcpy(static_cast<std::byte*>(object) + offset, &value, sizeof(value));
+}
+
+template <typename Value>
+    requires std::is_trivially_copyable_v<Value>
+void write_native_field(void* object, const Value& value) noexcept {
+    write_native_field(object, 0, value);
 }
 
 class PatchAddress {
@@ -137,8 +197,8 @@ enum class RedirectKind {
     Jump,
 };
 
-struct NearConstraint {
-    std::uint32_t rva;
+struct AllocationProximity {
+    std::uint32_t anchor_rva;
     std::size_t maximum_distance{0x7FFF'FFFF};
 };
 
@@ -172,7 +232,7 @@ template <typename T> class AllocatedData {
         return PatchAddress::allocation(slot_, index * sizeof(T));
     }
 
-    [[nodiscard]] PatchAddress offset(std::size_t byte_offset) const noexcept {
+    [[nodiscard]] PatchAddress byte_offset(std::size_t byte_offset) const noexcept {
         return PatchAddress::allocation(slot_, byte_offset);
     }
 
@@ -201,19 +261,39 @@ class PatchPlan {
     template <typename T>
         requires std::is_trivially_copyable_v<T>
     void checked_write(std::string_view operation, std::uint32_t rva, const T& expected, const T& replacement) {
-        checked_write(operation, rva, exact_pattern(expected), std::as_bytes(std::span{&replacement, 1}));
+        checked_write(operation, rva, BytePattern::exact(std::as_bytes(std::span{&expected, 1})),
+                      std::as_bytes(std::span{&replacement, 1}));
     }
 
     void checked_write(std::string_view operation, std::uint32_t rva, BytePattern expected, PatchAddress replacement);
+
+    template <typename T>
+        requires std::is_trivially_copyable_v<T>
+    void checked_write(std::string_view operation, std::uint32_t rva, const T& expected, PatchAddress replacement) {
+        checked_write(operation, rva, BytePattern::exact(std::as_bytes(std::span{&expected, 1})),
+                      std::move(replacement));
+    }
 
     void nop(std::string_view operation, std::uint32_t rva, BytePattern expected);
 
     void require_bytes(std::string_view operation, std::uint32_t rva, BytePattern expected);
 
+    template <typename T>
+        requires std::is_trivially_copyable_v<T>
+    void require_bytes(std::string_view operation, std::uint32_t rva, const T& expected) {
+        require_bytes(operation, rva, BytePattern::exact(std::as_bytes(std::span{&expected, 1})));
+    }
+
     template <typename Function>
         requires(std::is_pointer_v<Function> && std::is_function_v<std::remove_pointer_t<Function>>)
-    [[nodiscard]] OriginalFunction<Function> inline_hook(std::string_view operation, std::uint32_t rva,
-                                                         BytePattern expected, Function destination) {
+    void inline_hook(std::string_view operation, std::uint32_t rva, BytePattern expected, Function destination) {
+        add_inline_hook(operation, rva, expected, reinterpret_cast<std::uintptr_t>(destination), {});
+    }
+
+    template <typename Function>
+        requires(std::is_pointer_v<Function> && std::is_function_v<std::remove_pointer_t<Function>>)
+    [[nodiscard]] OriginalFunction<Function> inline_hook_with_original(std::string_view operation, std::uint32_t rva,
+                                                                       BytePattern expected, Function destination) {
         auto slot = std::make_shared<std::atomic<std::uintptr_t>>(0);
         add_inline_hook(operation, rva, expected, reinterpret_cast<std::uintptr_t>(destination), slot);
         return OriginalFunction<Function>{std::move(slot)};
@@ -231,6 +311,24 @@ class PatchPlan {
         redirect(operation, rva, expected, kind, PatchAddress::absolute(destination));
     }
 
+    template <typename Function>
+        requires(std::is_pointer_v<Function> && std::is_function_v<std::remove_pointer_t<Function>>)
+    [[nodiscard]] OriginalFunction<Function> redirect_with_original(std::string_view operation, std::uint32_t rva,
+                                                                    BytePattern expected, RedirectKind kind,
+                                                                    PatchAddress destination) {
+        auto slot = std::make_shared<std::atomic<std::uintptr_t>>(0);
+        add_redirect(operation, rva, expected, kind, std::move(destination), slot);
+        return OriginalFunction<Function>{std::move(slot)};
+    }
+
+    template <typename Function>
+        requires(std::is_pointer_v<Function> && std::is_function_v<std::remove_pointer_t<Function>>)
+    [[nodiscard]] OriginalFunction<Function> redirect_with_original(std::string_view operation, std::uint32_t rva,
+                                                                    BytePattern expected, RedirectKind kind,
+                                                                    Function destination) {
+        return redirect_with_original<Function>(operation, rva, expected, kind, PatchAddress::absolute(destination));
+    }
+
     template <typename Destination>
     void redirect_call(std::string_view operation, std::uint32_t rva, BytePattern expected, Destination destination) {
         redirect(operation, rva, expected, RedirectKind::Call, destination);
@@ -240,9 +338,15 @@ class PatchPlan {
         requires(std::is_pointer_v<Function> && std::is_function_v<std::remove_pointer_t<Function>>)
     [[nodiscard]] OriginalFunction<Function> redirect_call_with_original(std::string_view operation, std::uint32_t rva,
                                                                          BytePattern expected, Function destination) {
-        auto slot = std::make_shared<std::atomic<std::uintptr_t>>(0);
-        add_redirect(operation, rva, expected, RedirectKind::Call, PatchAddress::absolute(destination), slot);
-        return OriginalFunction<Function>{std::move(slot)};
+        return redirect_with_original(operation, rva, expected, RedirectKind::Call, destination);
+    }
+
+    template <typename Function>
+        requires(std::is_pointer_v<Function> && std::is_function_v<std::remove_pointer_t<Function>>)
+    [[nodiscard]] OriginalFunction<Function> redirect_call_with_original(std::string_view operation, std::uint32_t rva,
+                                                                         BytePattern expected,
+                                                                         PatchAddress destination) {
+        return redirect_with_original<Function>(operation, rva, expected, RedirectKind::Call, std::move(destination));
     }
 
     template <typename Destination>
@@ -250,11 +354,26 @@ class PatchPlan {
         redirect(operation, rva, expected, RedirectKind::Jump, destination);
     }
 
+    template <typename Function>
+        requires(std::is_pointer_v<Function> && std::is_function_v<std::remove_pointer_t<Function>>)
+    [[nodiscard]] OriginalFunction<Function> redirect_jump_with_original(std::string_view operation, std::uint32_t rva,
+                                                                         BytePattern expected, Function destination) {
+        return redirect_with_original(operation, rva, expected, RedirectKind::Jump, destination);
+    }
+
+    template <typename Function>
+        requires(std::is_pointer_v<Function> && std::is_function_v<std::remove_pointer_t<Function>>)
+    [[nodiscard]] OriginalFunction<Function> redirect_jump_with_original(std::string_view operation, std::uint32_t rva,
+                                                                         BytePattern expected,
+                                                                         PatchAddress destination) {
+        return redirect_with_original<Function>(operation, rva, expected, RedirectKind::Jump, std::move(destination));
+    }
+
     template <typename T>
         requires(std::is_trivially_copyable_v<T> && !std::is_const_v<T> && !std::is_volatile_v<T>)
     [[nodiscard]] AllocatedData<T> allocate_data(std::string_view operation, std::size_t count,
                                                  std::span<const T> initial_values = {},
-                                                 std::optional<NearConstraint> proximity = std::nullopt) {
+                                                 std::optional<AllocationProximity> proximity = std::nullopt) {
         auto slot = std::make_shared<std::atomic<std::uintptr_t>>(0);
         add_allocation(operation, count, sizeof(T), alignof(T), std::as_bytes(initial_values), proximity, slot);
         return AllocatedData<T>{std::move(slot), count};
@@ -268,7 +387,7 @@ class PatchPlan {
     void add_redirect(std::string_view operation, std::uint32_t rva, BytePattern expected, RedirectKind kind,
                       PatchAddress destination, std::shared_ptr<std::atomic<std::uintptr_t>> original_slot = {});
     void add_allocation(std::string_view operation, std::size_t count, std::size_t element_size, std::size_t alignment,
-                        std::span<const std::byte> initial_values, std::optional<NearConstraint> proximity,
+                        std::span<const std::byte> initial_values, std::optional<AllocationProximity> proximity,
                         std::shared_ptr<std::atomic<std::uintptr_t>> slot);
 
     friend class PreparedPatchPlan;

@@ -33,7 +33,7 @@ template <typename Value> [[nodiscard]] constexpr std::string_view expected_valu
 
 template <settings_detail::ScalarSetting Value>
 std::expected<std::optional<Value>, OutcomeReason> read_environment_value(std::string_view name) {
-    auto value = read_environment_variable(name);
+    auto value = environment_detail::read_variable(name);
     if (!value.has_value()) {
         return std::unexpected(std::move(value.error()));
     }
@@ -49,12 +49,14 @@ std::expected<std::optional<Value>, OutcomeReason> read_environment_value(std::s
     return std::optional<Value>{std::move(*parsed)};
 }
 
-template <typename Choice, std::size_t Size>
+template <typename Choice>
     requires std::is_enum_v<Choice>
 std::expected<std::optional<Choice>, OutcomeReason>
-read_environment_choice(std::string_view name, const std::array<ChoiceValue<Choice>, Size>& choices) {
-    static_assert(Size != 0);
-    auto value = read_environment_variable(name);
+read_environment_choice(std::string_view name, std::span<const ChoiceValue<Choice>> choices) {
+    if (choices.empty()) {
+        return std::unexpected(environment_detail::invalid_value(name, "at least one declared choice"));
+    }
+    auto value = environment_detail::read_variable(name);
     if (!value.has_value()) {
         return std::unexpected(std::move(value.error()));
     }
@@ -77,6 +79,21 @@ read_environment_choice(std::string_view name, const std::array<ChoiceValue<Choi
         accepted += choice.name;
     }
     return std::unexpected(environment_detail::invalid_value(name, std::move(accepted)));
+}
+
+template <typename Choice, std::size_t Size>
+    requires std::is_enum_v<Choice>
+std::expected<std::optional<Choice>, OutcomeReason>
+read_environment_choice(std::string_view name, const std::array<ChoiceValue<Choice>, Size>& choices) {
+    static_assert(Size != 0);
+    return read_environment_choice(name, std::span<const ChoiceValue<Choice>>(choices));
+}
+
+template <typename Choice>
+    requires std::is_enum_v<Choice>
+std::expected<std::optional<Choice>, OutcomeReason>
+read_environment_choice(std::string_view name, std::initializer_list<ChoiceValue<Choice>> choices) {
+    return read_environment_choice(name, std::span(choices.begin(), choices.size()));
 }
 
 } // namespace fusioncutter

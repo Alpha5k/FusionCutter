@@ -11,6 +11,26 @@
 
 namespace fusioncutter::catalog {
 
+struct PatchBuildEnvelope {
+    bool x86;
+    bool x64;
+    bool client;
+    bool server;
+
+    [[nodiscard]] constexpr bool supports(Architecture architecture) const noexcept {
+        return architecture == Architecture::X86 ? x86 : x64;
+    }
+
+    [[nodiscard]] constexpr bool supports(HostRole role) const noexcept {
+        return role == HostRole::Client ? client : server;
+    }
+};
+
+[[nodiscard]] inline const SettingsDefinition& variant_settings(const PatchDefinition& definition,
+                                                                const PatchVariant& variant) noexcept {
+    return variant.settings_override.has_value() ? *variant.settings_override : definition.settings;
+}
+
 struct CatalogEntry {
     PatchId id;
     PatchDefinition definition;

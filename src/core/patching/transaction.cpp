@@ -49,9 +49,13 @@ std::expected<void, CommitFailure> PreparedPatchPlan::commit() {
                     return {};
                 } else {
                     if constexpr (std::same_as<State, PreparedInlineHook>) {
-                        state.original_slot->store(state.hook.trampoline().address(), std::memory_order_release);
+                        if (state.original_slot) {
+                            state.original_slot->store(state.hook.trampoline().address(), std::memory_order_release);
+                        }
                         if (auto enabled = state.hook.enable(); !enabled) {
-                            state.original_slot->store(0, std::memory_order_release);
+                            if (state.original_slot) {
+                                state.original_slot->store(0, std::memory_order_release);
+                            }
                             return std::unexpected(
                                 operation_failure(inline_hook_error(enabled.error()), operation.name));
                         }
