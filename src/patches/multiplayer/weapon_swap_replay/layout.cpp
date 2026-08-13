@@ -14,7 +14,7 @@ constexpr auto kAuthoritativeSelect =
 constexpr auto kPackedSelect =
     byte_array<0x85, 0xC9, 0x78, 0x0F, 0x8B, 0x8C, 0x8F, 0x20, 0x07, 0x00, 0x00, 0x6A, 0x00, 0x52, 0x8B, 0x01>();
 constexpr auto kBaseSelect =
-    byte_array<0x80, 0x7D, 0x0C, 0x00, 0xF3, 0x0F, 0x5C, 0x05, 0x00, 0x00, 0x00, 0x00, 0xF3, 0x0F, 0x11, 0x87>();
+    byte_array<0xF3, 0x0F, 0x11, 0x87, 0xC4, 0x00, 0x00, 0x00, 0x75, 0x2A, 0x8B, 0x43, 0x0C, 0x8D, 0x4B, 0x0C>();
 constexpr auto kHudWeapon =
     byte_array<0x8B, 0xF0, 0x89, 0x75, 0xF0, 0x85, 0xF6, 0x74, 0x0D, 0x8B, 0x46, 0x64, 0x89, 0x45, 0xFC, 0xEB>();
 constexpr auto kRenderSelection =
@@ -63,7 +63,6 @@ constexpr WeaponSwapLayout kSteamLayout{
             .client_turn_rva = 0x01A64BA4,
             .local_move_history_rva = 0x01AE4B40,
             .client_host_turn_rva = 0x01A64DE4,
-            .select_time_adjustment_rva = 0x003B2104,
             .update_turn_store = {.rva = 0x001BB6C0, .expected = kUpdateTurnStore},
             .predict_turn_reader = {.rva = 0x001BE3A0, .expected = kPredictTurnReader},
             .acknowledged_turn_store = {.rva = 0x001BBA39, .expected = kAcknowledgedTurnStore},
@@ -77,7 +76,7 @@ constexpr WeaponSwapLayout kSteamLayout{
             .packed_sync = {.rva = 0x000EA2B5, .expected = kPackedSync},
             .authoritative_select = {.rva = 0x001EABD7, .expected = kAuthoritativeSelect},
             .packed_select = {.rva = 0x001EA3CE, .expected = kPackedSelect},
-            .base_select = {.rva = 0x002780AE, .expected = kBaseSelect},
+            .base_select = {.rva = 0x002780BA, .expected = kBaseSelect},
             .hud_weapon = {.rva = 0x00160AF3, .expected = kHudWeapon},
             .render_selection = {.rva = 0x000E301D, .expected = kRenderSelection},
             .render_channel_selection = {.rva = 0x000E3075, .expected = kRenderChannelSelection},
@@ -102,7 +101,6 @@ constexpr WeaponSwapLayout kGogLayout{
             .client_turn_rva = 0x01A66054,
             .local_move_history_rva = 0x01AE5FF0,
             .client_host_turn_rva = 0x01A66294,
-            .select_time_adjustment_rva = 0x003B307C,
             .update_turn_store = {.rva = 0x001BC670, .expected = kUpdateTurnStore},
             .predict_turn_reader = {.rva = 0x001BF330, .expected = kPredictTurnReader},
             .acknowledged_turn_store = {.rva = 0x001BC9E9, .expected = kAcknowledgedTurnStore},
@@ -116,7 +114,7 @@ constexpr WeaponSwapLayout kGogLayout{
             .packed_sync = {.rva = 0x000EA2B5, .expected = kPackedSync},
             .authoritative_select = {.rva = 0x001EBC77, .expected = kAuthoritativeSelect},
             .packed_select = {.rva = 0x001EB46E, .expected = kPackedSelect},
-            .base_select = {.rva = 0x0027914E, .expected = kBaseSelect},
+            .base_select = {.rva = 0x0027915A, .expected = kBaseSelect},
             .hud_weapon = {.rva = 0x00161873, .expected = kHudWeapon},
             .render_selection = {.rva = 0x000E301D, .expected = kRenderSelection},
             .render_channel_selection = {.rva = 0x000E3075, .expected = kRenderChannelSelection},
@@ -167,7 +165,6 @@ void add_layout_requirements(PatchPlan& plan, const ImageContext& image, const W
     auto move_history = layout.state.move_history_access.expected;
     embed_image_address<3>(move_history, image, layout.state.local_move_history_rva);
 
-    constexpr float kSelectTimeAdjustment = 1.0F;
     plan.require_bytes("Validate local-player lookup", layout.joystick_lookup.rva, layout.joystick_lookup.pattern());
     plan.require_bytes("Validate authoritative update frontier", layout.state.update_turn_store.rva,
                        BytePattern::exact(update_store));
@@ -181,18 +178,10 @@ void add_layout_requirements(PatchPlan& plan, const ImageContext& image, const W
                        BytePattern::exact(client_turn_setter));
     plan.require_bytes("Validate local input history", layout.state.move_history_access.rva,
                        BytePattern::exact(move_history));
-    plan.require_bytes("Validate weapon selection time adjustment", layout.state.select_time_adjustment_rva,
-                       kSelectTimeAdjustment);
     plan.require_bytes("Validate primary weapon-switch caller", layout.hooks.switch_primary_caller.rva,
                        layout.hooks.switch_primary_caller.pattern());
     plan.require_bytes("Validate secondary weapon-switch caller", layout.hooks.switch_secondary_caller.rva,
                        layout.hooks.switch_secondary_caller.pattern());
-}
-
-std::array<std::byte, 16> base_select_preimage(const ImageContext& image, const WeaponSwapLayout& layout) noexcept {
-    auto bytes = layout.hooks.base_select.expected;
-    embed_image_address<8>(bytes, image, layout.state.select_time_adjustment_rva);
-    return bytes;
 }
 
 } // namespace fusioncutter::patches::weapon_swap_replay

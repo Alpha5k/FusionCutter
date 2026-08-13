@@ -9,8 +9,8 @@ namespace {
 constexpr std::size_t kControllablePlayerOffset = 0x94;
 constexpr std::size_t kWeaponSelectTimeOffset = 0xC4;
 constexpr std::size_t kSelectChannelArgumentOffset = 0x08;
-constexpr std::size_t kSelectSilentArgumentOffset = 0x0C;
 constexpr std::size_t kHudWeaponChannelOffset = 0x24;
+constexpr std::uintptr_t kZeroFlagMask = 1U << 6;
 
 [[nodiscard]] std::uintptr_t with_low_byte(std::uintptr_t value, std::uint8_t low_byte) noexcept {
     return (value & ~std::uintptr_t{0xFF}) | low_byte;
@@ -100,10 +100,9 @@ void WeaponSwapReplayFix::suppress_duplicate_select(MidHookContext& context) noe
         return;
     }
 
-    // Let native code run while preserving the current presentation time and taking its silent path.
-    context.xmm0.f32[0] = read_native_field<float>(weapon, kWeaponSelectTimeOffset) + *patch->select_time_adjustment_;
-    constexpr std::uint8_t kSilent = 1;
-    write_native_field(reinterpret_cast<void*>(context.ebp), kSelectSilentArgumentOffset, kSilent);
+    // Preserve the current presentation time and take Weapon::Select's native silent branch.
+    context.xmm0.f32[0] = read_native_field<float>(weapon, kWeaponSelectTimeOffset);
+    context.eflags &= ~kZeroFlagMask;
 }
 
 void WeaponSwapReplayFix::project_hud_weapon(MidHookContext& context) noexcept {

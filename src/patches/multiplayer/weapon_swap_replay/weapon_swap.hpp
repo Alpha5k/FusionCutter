@@ -40,6 +40,7 @@ class WeaponSwapReplayFix final : public RuntimePatch {
     // Keep request ownership synchronized with network and local-player lifecycle changes.
     [[nodiscard]] int local_player_index(void* soldier) const noexcept;
     [[nodiscard]] int tracked_local_player(void* soldier) const noexcept;
+    [[nodiscard]] bool is_tracked_local_soldier(void* soldier, int local_player) const noexcept;
     [[nodiscard]] bool network_prediction_active() const noexcept;
     void observe_lifecycle() noexcept;
     void update_presentation_activity() noexcept;
@@ -76,7 +77,6 @@ class WeaponSwapReplayFix final : public RuntimePatch {
     const volatile std::uint8_t* network_client_active_{};
     const volatile std::int32_t* client_turn_{};
     const std::byte* local_move_history_{};
-    const float* select_time_adjustment_{};
     std::uintptr_t switch_primary_return_{};
     std::uintptr_t switch_secondary_return_{};
     LocalSwapLedger ledger_;

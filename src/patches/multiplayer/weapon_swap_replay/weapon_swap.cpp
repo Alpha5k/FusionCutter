@@ -22,7 +22,6 @@ WeaponSwapReplayFix::WeaponSwapReplayFix(const TargetContext& target) noexcept
       network_client_active_(image_.read_at_rva<volatile std::uint8_t>(layout_.state.network_client_active_rva)),
       client_turn_(image_.read_at_rva<volatile std::int32_t>(layout_.state.client_turn_rva)),
       local_move_history_(image_.read_at_rva<std::byte>(layout_.state.local_move_history_rva)),
-      select_time_adjustment_(image_.read_at_rva<float>(layout_.state.select_time_adjustment_rva)),
       switch_primary_return_(image_.address_at_rva(layout_.hooks.switch_primary_caller.rva +
                                                    layout_.hooks.switch_primary_caller.expected.size())),
       switch_secondary_return_(image_.address_at_rva(layout_.hooks.switch_secondary_caller.rva +
@@ -38,9 +37,8 @@ void WeaponSwapReplayFix::build_plan(PatchPlan& plan) {
                   layout_.hooks.authoritative_select.pattern(), &WeaponSwapReplayFix::observe_authoritative_select);
     plan.mid_hook("Observe authoritative packed selection", layout_.hooks.packed_select.rva,
                   layout_.hooks.packed_select.pattern(), &WeaponSwapReplayFix::observe_packed_select);
-    const auto base_select = base_select_preimage(image_, layout_);
     plan.mid_hook("Suppress duplicate weapon presentation", layout_.hooks.base_select.rva,
-                  BytePattern::exact(base_select), &WeaponSwapReplayFix::suppress_duplicate_select);
+                  layout_.hooks.base_select.pattern(), &WeaponSwapReplayFix::suppress_duplicate_select);
     plan.mid_hook("Project weapon selection to the HUD", layout_.hooks.hud_weapon.rva,
                   layout_.hooks.hud_weapon.pattern(), &WeaponSwapReplayFix::project_hud_weapon);
     plan.mid_hook("Project weapon selection during render lookup", layout_.hooks.render_selection.rva,
@@ -78,6 +76,11 @@ int WeaponSwapReplayFix::tracked_local_player(void* soldier) const noexcept {
         }
     }
     return -1;
+}
+
+bool WeaponSwapReplayFix::is_tracked_local_soldier(void* soldier, int local_player) const noexcept {
+    return local_player >= 0 && local_player < kLocalPlayers &&
+           local_soldiers_[static_cast<std::size_t>(local_player)] == soldier;
 }
 
 bool WeaponSwapReplayFix::network_prediction_active() const noexcept {

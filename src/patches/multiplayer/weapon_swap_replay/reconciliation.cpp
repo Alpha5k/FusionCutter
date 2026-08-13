@@ -86,8 +86,8 @@ void WeaponSwapReplayFix::handle_packed_sync(void* adjusted_soldier, void* targe
     }
 
     auto* soldier = soldier_from_controllable(adjusted_soldier);
-    const int local_player = tracked_local_player(soldier);
-    if (local_player < 0) {
+    const int local_player = local_player_index(soldier);
+    if (!is_tracked_local_soldier(soldier, local_player)) {
         return;
     }
 
@@ -117,9 +117,9 @@ void WeaponSwapReplayFix::handle_authoritative_select(void* soldier, int channel
         return;
     }
 
-    const int local_player = tracked_local_player(soldier);
-    if (local_player < 0 || channel < 0 || channel >= kWeaponChannels || current_index < 0 ||
-        current_index >= kWeaponIndices || server_index < 0 || server_index >= kWeaponIndices) {
+    const int local_player = local_player_index(soldier);
+    if (!is_tracked_local_soldier(soldier, local_player) || channel < 0 || channel >= kWeaponChannels ||
+        current_index < 0 || current_index >= kWeaponIndices || server_index < 0 || server_index >= kWeaponIndices) {
         return;
     }
 
@@ -144,10 +144,11 @@ void WeaponSwapReplayFix::handle_packed_select(void* soldier, int old_channel, i
 
     const int server_index = packed_weapon_index(server_packed);
     const int server_channel = packed_weapon_channel(server_packed);
-    const int local_player = tracked_local_player(soldier);
-    if (local_player < 0 || old_channel < 0 || old_channel >= kWeaponChannels || server_channel < 0 ||
-        server_channel >= kWeaponChannels || old_index < 0 || old_index >= kWeaponIndices || server_index < 0 ||
-        server_index >= kWeaponIndices || (old_channel == server_channel && old_index == server_index)) {
+    const int local_player = local_player_index(soldier);
+    if (!is_tracked_local_soldier(soldier, local_player) || old_channel < 0 || old_channel >= kWeaponChannels ||
+        server_channel < 0 || server_channel >= kWeaponChannels || old_index < 0 || old_index >= kWeaponIndices ||
+        server_index < 0 || server_index >= kWeaponIndices ||
+        (old_channel == server_channel && old_index == server_index)) {
         return;
     }
 

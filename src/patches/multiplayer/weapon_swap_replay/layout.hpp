@@ -2,7 +2,6 @@
 
 #include <FusionCutter/patching.hpp>
 
-#include <array>
 #include <cstdint>
 
 namespace fusioncutter::patches::weapon_swap_replay {
@@ -19,7 +18,6 @@ struct WeaponSwapStateLayout {
     std::uint32_t client_turn_rva;
     std::uint32_t local_move_history_rva;
     std::uint32_t client_host_turn_rva;
-    std::uint32_t select_time_adjustment_rva;
     NativeSite<10> update_turn_store;
     NativeSite<16> predict_turn_reader;
     NativeSite<12> acknowledged_turn_store;
@@ -53,8 +51,5 @@ struct WeaponSwapLayout {
 [[nodiscard]] const WeaponSwapLayout& layout_for(TargetLayout target) noexcept;
 // Proves state operands and caller identities not covered by an installed hook.
 void add_layout_requirements(PatchPlan& plan, const ImageContext& image, const WeaponSwapLayout& layout);
-// Resolves the relocated float operand embedded in Weapon::Select.
-[[nodiscard]] std::array<std::byte, 16> base_select_preimage(const ImageContext& image,
-                                                             const WeaponSwapLayout& layout) noexcept;
 
 } // namespace fusioncutter::patches::weapon_swap_replay
