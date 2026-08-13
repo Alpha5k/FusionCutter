@@ -227,17 +227,6 @@ read_relocation_rvas(std::span<const std::byte> image, const ImageFacts& facts) 
 
 [[nodiscard]] std::expected<void*, std::string> allocate_image(const ImageFacts& facts) {
     constexpr auto kProtection = PAGE_EXECUTE_READWRITE;
-    const bool relocatable = facts.relocation_rva != 0 && facts.relocation_size != 0;
-    if (!relocatable) {
-        auto* allocation = VirtualAlloc(reinterpret_cast<void*>(facts.preferred_base), facts.size,
-                                        MEM_RESERVE | MEM_COMMIT, kProtection);
-        if (allocation == nullptr) {
-            return std::unexpected("could not reserve a fixed-base image at its preferred address (Windows error " +
-                                   std::to_string(GetLastError()) + ")");
-        }
-        return allocation;
-    }
-
     auto* preferred_reservation =
         VirtualAlloc(reinterpret_cast<void*>(facts.preferred_base), facts.size, MEM_RESERVE, PAGE_NOACCESS);
     auto* allocation = VirtualAlloc(nullptr, facts.size, MEM_RESERVE | MEM_COMMIT, kProtection);

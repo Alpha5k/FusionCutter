@@ -1,6 +1,7 @@
 #pragma once
 
 #include "protocol.hpp"
+#include "../../network_pipeline/pipeline.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -77,5 +78,8 @@ class GameTransport {
     virtual void on_remote_member(const void* member_id, std::uint32_t state) noexcept = 0;
     virtual void on_local_lobby_left() noexcept = 0;
 };
+
+// Adapts a role-specific Direct Transport instance to the shared network pipeline.
+[[nodiscard]] network_pipeline::TransportCallbacks make_pipeline_callbacks(GameTransport& transport) noexcept;
 
 } // namespace fusioncutter::patches::direct_transport

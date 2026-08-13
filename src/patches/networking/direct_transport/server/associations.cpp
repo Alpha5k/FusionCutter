@@ -1,7 +1,8 @@
 #include "transport.hpp"
 
+#include "../../network_pipeline/pipeline.hpp"
+
 #include "../shared/datagram.hpp"
-#include "../shared/game_hooks.hpp"
 
 #include <WinSock2.h>
 #include <Windows.h>
@@ -27,6 +28,7 @@ void ServerTransport::start_association(std::uint8_t physical_primary, std::uint
     next.generation = next_generation_;
     next.diagnostics.reset(now);
     associations_[physical_primary] = next;
+    observe_association(physical_primary, network_pipeline::DirectAssociationPhase::Started, now);
     publish_route_counts();
 }
 
@@ -35,12 +37,41 @@ void ServerTransport::invalidate_association(std::uint8_t physical_primary, Asso
         return;
     }
     auto& association = associations_[physical_primary];
+    const auto now = GetTickCount64();
+    observe_association(physical_primary, network_pipeline::DirectAssociationPhase::Ended, now, reason);
     association.diagnostics.finish("Server", physical_primary, association.generation, association.connection_id,
-                                   association.state, reason, GetTickCount64());
+                                   association.state, reason, now);
     const auto transmit_group = association.transmit_group;
     association = {};
     association.transmit_group = transmit_group;
     publish_route_counts();
+}
+
+void ServerTransport::observe_association(std::uint8_t physical_primary, network_pipeline::DirectAssociationPhase phase,
+                                          std::uint64_t now, AssociationEndReason end_reason,
+                                          std::uint32_t attempts) noexcept {
+    const auto& association = associations_[physical_primary];
+    const auto snapshot = association.diagnostics.snapshot(now);
+    network_pipeline::observe_direct_association({
+        .slot = physical_primary,
+        .generation = association.generation,
+        .connection_id = association.connection_id,
+        .phase = phase,
+        .route = static_cast<std::uint8_t>(association.state),
+        .route_reason = static_cast<std::uint8_t>(association.diagnostics.route_reason()),
+        .end_reason = phase == network_pipeline::DirectAssociationPhase::Ended ? static_cast<std::uint8_t>(end_reason)
+                                                                               : std::uint8_t{},
+        .attempts = attempts,
+        .tx_datagrams = snapshot.tx_datagrams,
+        .rx_datagrams = snapshot.rx_datagrams,
+        .send_failures = snapshot.send_failures,
+        .endpoint_rejects = snapshot.endpoint_rejects,
+        .authentication_rejects = snapshot.authentication_rejects,
+        .replay_rejects = snapshot.replay_rejects,
+        .invalid_rejects = snapshot.invalid_rejects,
+        .elapsed_ms = snapshot.elapsed_ms,
+        .direct_ms = snapshot.direct_ms,
+    });
 }
 
 void ServerTransport::invalidate_all(AssociationEndReason reason) noexcept {
@@ -180,9 +211,15 @@ void ServerTransport::handle_direct(std::span<const std::uint8_t> bytes, const E
     void* packet{};
     const auto built = build_native_packet(packet_factory_, direct.payload, packet);
     if (built == NativePacketResult::Built) {
-        submit_direct_native(packet, &association.galaxy_id);
+        network_pipeline::submit_native(packet, &association.galaxy_id);
         association.diagnostics.direct_rx("Server", physical_primary, association.generation,
                                           association.connection_id);
+        network_pipeline::observe_direct_receive({
+            .slot = physical_primary,
+            .generation = association.generation,
+            .connection_id = association.connection_id,
+            .sequence = direct.datagram_sequence,
+        });
     } else if (built == NativePacketResult::RejectedPayload) {
         association.diagnostics.reject(RejectionKind::Invalid);
     } else if (built == NativePacketResult::FactoryUnavailable) {
@@ -333,10 +370,13 @@ void ServerTransport::set_route(std::uint8_t physical_primary, RouteState state,
     association.state = state;
     association.transmit_route = route;
     association.receive_permission = receive_permission;
-    if (state == RouteState::GalaxyLocked || state == RouteState::DirectLocked) {
+    if (entering_terminal) {
         association.diagnostics.terminal_route("Server", physical_primary, association.generation,
                                                association.connection_id, state, reason, GetTickCount64(),
                                                association.offer_attempts + association.commit_attempts);
+        observe_association(physical_primary, network_pipeline::DirectAssociationPhase::Terminal, GetTickCount64(),
+                            AssociationEndReason::Disconnected,
+                            association.offer_attempts + association.commit_attempts);
     }
     publish_route_counts();
 }

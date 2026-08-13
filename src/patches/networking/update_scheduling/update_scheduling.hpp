@@ -37,7 +37,7 @@ class UpdateScheduling final : public RuntimePatch {
     void record_create(std::uint32_t player) noexcept;
 
     // Reimplements bf2_create_fence_blocks, including its acknowledgement timeout and native NACK reset.
-    [[nodiscard]] bool fence_blocks(std::uint32_t player) noexcept;
+    [[nodiscard]] bool fence_blocks(std::uint32_t player, bool& timed_out) noexcept;
 
     // Reimplements bf2_su2_slotfix_cc's guard around SentUpdate's two acknowledgement slots.
     static void guard_sent_slot(MidHookContext& context) noexcept;

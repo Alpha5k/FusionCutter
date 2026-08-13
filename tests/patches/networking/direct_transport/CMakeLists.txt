@@ -32,28 +32,3 @@ fc_configure_project_target(direct_transport_tests)
 fc_set_artifact_directories(direct_transport_tests)
 
 add_test(NAME patches.direct_transport COMMAND direct_transport_tests)
-
-add_executable(direct_transport_abi_tests
-    abi_tests.cpp
-    "${FC_SOURCE_ROOT}/src/patches/networking/direct_transport/shared/game_hooks.cpp"
-    "${FC_SOURCE_ROOT}/src/patches/networking/direct_transport/shared/game_layout.cpp"
-)
-
-target_include_directories(direct_transport_abi_tests PRIVATE
-    "${FC_SOURCE_ROOT}/include"
-)
-
-target_compile_definitions(direct_transport_abi_tests PRIVATE
-    FC_DIRECT_TRANSPORT_ABI_TEST
-)
-
-target_link_libraries(direct_transport_abi_tests PRIVATE
-    Catch2::Catch2WithMain
-    fusioncutter_patching
-    Ws2_32
-)
-
-fc_configure_project_target(direct_transport_abi_tests)
-fc_set_artifact_directories(direct_transport_abi_tests)
-
-add_test(NAME patches.direct_transport_abi COMMAND direct_transport_abi_tests)

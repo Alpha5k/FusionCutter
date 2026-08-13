@@ -52,6 +52,14 @@ struct ChildResult {
     DWORD exit_code;
 };
 
+struct FileIdentity {
+    DWORD volume_serial_number;
+    DWORD file_index_high;
+    DWORD file_index_low;
+
+    bool operator==(const FileIdentity&) const = default;
+};
+
 [[nodiscard]] std::filesystem::path reporting_probe_path() {
     std::array<wchar_t, 32'768> value{};
     const auto length = GetEnvironmentVariableW(L"FC_REPORTING_PROBE", value.data(), static_cast<DWORD>(value.size()));
@@ -85,6 +93,18 @@ struct ChildResult {
     std::ifstream input(path, std::ios::binary);
     REQUIRE(input.good());
     return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+[[nodiscard]] FileIdentity file_identity(const std::filesystem::path& path) {
+    const auto file =
+        CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    REQUIRE(file != INVALID_HANDLE_VALUE);
+
+    BY_HANDLE_FILE_INFORMATION information{};
+    REQUIRE(GetFileInformationByHandle(file, &information));
+    CloseHandle(file);
+    return {information.dwVolumeSerialNumber, information.nFileIndexHigh, information.nFileIndexLow};
 }
 
 [[nodiscard]] std::size_t occurrence_count(std::string_view text, std::string_view needle) {
@@ -171,6 +191,14 @@ TEST_CASE("Unhandled native exception terminates the child after writing one rep
 TEST_CASE("Ordinary reporting filters before lazy output and renders relevant status", "[core][reporting]") {
     TemporaryDirectory directory;
     const auto executable = copy_probe(directory);
+    const auto status_path = directory.path() / L"FusionCutter.txt";
+    {
+        std::ofstream status(status_path, std::ios::binary);
+        REQUIRE(status);
+        status << "stale status from an earlier process";
+    }
+    const auto original_status_identity = file_identity(status_path);
+
     const auto child = run_child(executable, L"ordinary");
     REQUIRE(child.wait_result == WAIT_OBJECT_0);
     REQUIRE(child.exit_code == ERROR_SUCCESS);
@@ -181,7 +209,8 @@ TEST_CASE("Ordinary reporting filters before lazy output and renders relevant st
     CHECK(log.contains("Operation: Install input hook"));
     CHECK_FALSE(log.contains("filtered informational record"));
 
-    const auto status = read_file(directory.path() / L"FusionCutter.txt");
+    CHECK(file_identity(status_path) == original_status_identity);
+    const auto status = read_file(status_path);
     CHECK(status.contains("Fusion Cutter development\r\nStatus: Completed"));
     CHECK(status.contains("Target: Steam (Client,"));
     CHECK(status.contains("Configuration: FusionCutter.ini"));

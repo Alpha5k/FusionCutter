@@ -5,12 +5,6 @@
 namespace fusioncutter::patches::direct_transport::layouts {
 
 inline constexpr GameLayout kSteamGame{
-    .final_send_rva = 0x0021'7E50,
-    .group_send_rva = 0x001B'2900,
-    .receive_rva = 0x001B'31C0,
-    .intake_rva = 0x001B'3290,
-    .disconnect_rva = 0x001B'2AF0,
-    .reset_rva = 0x001B'2430,
     .remote_member_callback_rva = 0x001D'4DA0,
     .remote_member_listener_rva = 0x003A'BA4C,
     .local_lobby_left_callback_rva = 0x001D'4D10,

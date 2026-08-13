@@ -55,7 +55,6 @@ class StatusPublisher {
     void publish(const LogStatus& log_status, bool force) noexcept;
 
     std::filesystem::path path_;
-    std::filesystem::path temporary_path_;
     mutable std::mutex mutex_;
     std::optional<TargetContext> target_;
     std::optional<std::filesystem::path> configuration_;

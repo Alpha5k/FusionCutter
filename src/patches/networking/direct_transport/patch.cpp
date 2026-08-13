@@ -14,6 +14,8 @@ constexpr std::array<PatchRelationship, 1> kIncludes{
     PatchRelationship{"GalaxyPeerObserver", TargetLayout::GOGRetail, HostRole::Server},
 };
 
+constexpr std::array<PatchRelationship, 1> kDependsOn{"NetworkPipeline"};
+
 using ClientPatch = client::DirectTransportClient;
 using ServerPatch = server::DirectTransportServer;
 
@@ -39,6 +41,7 @@ PatchDefinition definition() {
         .configurable = true,
         .category = categories::Networking,
         .description = "Sends multiplayer packets directly over authenticated UDP instead of GalaxyPeer",
+        .depends_on = kDependsOn,
         .includes = kIncludes,
         .variants = kVariants,
     };

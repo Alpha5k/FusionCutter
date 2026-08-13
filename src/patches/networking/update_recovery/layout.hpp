@@ -17,8 +17,11 @@ struct ReceiveFrameLayout {
 
 struct NativeFunctionsLayout {
     NativeSite<6> construct_group;
-    NativeSite<8> receive_group;
-    NativeSite<7> get_update_turn;
+    // Prove callable helpers beyond their entry hooks so compatible observers can coexist.
+    std::uint32_t receive_group_entry_rva;
+    NativeSite<17> receive_group_proof;
+    std::uint32_t get_update_turn_entry_rva;
+    NativeSite<15> get_update_turn_proof;
     NativeSite<6> receive_update;
     NativeSite<12> get_last_receive;
     std::uint32_t last_receive_table_rva;

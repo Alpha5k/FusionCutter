@@ -1,6 +1,7 @@
 #include "object_budget.hpp"
 
 #include "layout.hpp"
+#include "../network_diagnostics/observations.hpp"
 
 #include <algorithm>
 
@@ -37,16 +38,19 @@ void ObjectBudget::disable_runtime() noexcept {
 std::int32_t ObjectBudget::scaled_object_budget() const noexcept {
     const auto destination = *image_.read_at_rva<std::uint32_t>(layout::kCurrentDestinationRva);
     auto object_scale = kStockObjectScale;
+    std::uint32_t pending{};
 
     if (destination < kMaxPlayers) {
         const auto cursor_rva = layout::kDestinationEventCursorRva + destination * kPlayerStateStride;
         const auto cursor = *image_.read_at_rva<std::uint32_t>(cursor_rva) & kEventRingMask;
         const auto head = *image_.read_at_rva<std::uint32_t>(layout::kEventHeadRva) & kEventRingMask;
-        const auto pending = (head - cursor) & kEventRingMask;
+        pending = (head - cursor) & kEventRingMask;
         const auto pressured = pending > kFreeEvents ? pending - kFreeEvents : 0;
         const auto reserve = std::min(static_cast<std::int32_t>(pressured) * kReservePerEvent, kMaximumReserve);
         object_scale -= reserve;
     }
+
+    network_diagnostics::observe_object_budget(destination, pending, object_scale);
 
     const auto update_size = *image_.read_at_rva<std::int32_t>(layout::kNetUpdateSizeRva);
     return static_cast<std::int32_t>(static_cast<std::int64_t>(update_size) * object_scale);

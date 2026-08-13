@@ -97,6 +97,9 @@ class ClientTransport final : public GameTransport {
     // Starts or ends one generation of client-to-host negotiation.
     void start_association(std::uint64_t lobby_id, std::uint64_t owner_user_id, std::uint64_t now) noexcept;
     void invalidate_association(AssociationEndReason reason = AssociationEndReason::Disconnected) noexcept;
+    void observe_association(network_pipeline::DirectAssociationPhase phase, std::uint64_t now,
+                             AssociationEndReason end_reason = AssociationEndReason::Disconnected,
+                             std::uint32_t attempts = 0) noexcept;
     // Drains the bounded Galaxy control channel and direct UDP socket.
     void pump_control(std::uint64_t now) noexcept;
     void pump_direct(std::uint64_t now) noexcept;

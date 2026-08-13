@@ -10,7 +10,7 @@ namespace fusioncutter::patches::direct_transport::server {
 
 DirectTransportServer::DirectTransportServer(DirectTransportSettings settings, const TargetContext& target)
     : layout_(layouts::kGogGame), policy_(settings.policy), transport_(target.image, layout_),
-      hooks_(target.image, layout_) {
+      lobby_hooks_(target.image, layout_), pipeline_callbacks_(make_pipeline_callbacks(transport_)) {
     auto resolved = resolve_policy(settings.policy);
     if (!resolved.has_value()) {
         policy_error_ = std::move(resolved.error());
@@ -28,7 +28,7 @@ void DirectTransportServer::build_plan(PatchPlan& plan) {
     if (policy_error_.has_value() || policy_ == Policy::Disabled) {
         return;
     }
-    hooks_.build_plan(plan);
+    lobby_hooks_.build_plan(plan);
     transport_.build_plan(plan);
 }
 
@@ -44,7 +44,8 @@ void DirectTransportServer::enable_runtime() noexcept {
         return;
     }
     publish_endpoint_sink(transport_);
-    hooks_.enable(transport_);
+    lobby_hooks_.enable(transport_);
+    network_pipeline::publish_transport(pipeline_callbacks_);
     enabled_ = true;
 }
 
@@ -52,7 +53,8 @@ void DirectTransportServer::disable_runtime() noexcept {
     if (!enabled_) {
         return;
     }
-    hooks_.disable(transport_);
+    network_pipeline::clear_transport(pipeline_callbacks_);
+    lobby_hooks_.disable(transport_);
     clear_endpoint_sink(transport_);
     transport_.shutdown();
     enabled_ = false;

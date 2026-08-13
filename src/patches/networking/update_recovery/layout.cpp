@@ -11,8 +11,14 @@ namespace {
 constexpr auto kDrainPreimage = byte_array<0xBA, 0x01, 0x00, 0x00, 0x00, 0x85, 0xD2, 0x0F, 0x84, 0x17, 0x01, 0x00, 0x00,
                                            0x68, 0x00, 0x00, 0x00, 0x00>();
 constexpr auto kConstructGroupPreimage = byte_array<0xC6, 0x01, 0x00, 0x8B, 0xC1, 0xC3>();
-constexpr auto kReceiveGroupPreimage = byte_array<0x56, 0x8B, 0xF2, 0xBA, 0x1E, 0x00, 0x00, 0x00>();
-constexpr auto kGetUpdateTurnPreimage = byte_array<0x55, 0x8B, 0xEC, 0x51, 0x8B, 0x4D, 0x08>();
+constexpr auto kSteamReceiveGroupProof =
+    byte_array<0x85, 0xC0, 0x74, 0x1D, 0x8B, 0xD0, 0x8B, 0xCF, 0xE8, 0x11, 0x05, 0x00, 0x00, 0x84, 0xC0, 0x75, 0x15>();
+constexpr auto kGogReceiveGroupProof =
+    byte_array<0x85, 0xC0, 0x74, 0x1D, 0x8B, 0xD0, 0x8B, 0xCF, 0xE8, 0x21, 0x05, 0x00, 0x00, 0x84, 0xC0, 0x75, 0x15>();
+constexpr auto kSteamGetUpdateTurnProof =
+    byte_array<0x8B, 0x4D, 0x08, 0xE8, 0xB0, 0xDD, 0x01, 0x00, 0x8B, 0x45, 0xFC, 0x8B, 0xE5, 0x5D, 0xC3>();
+constexpr auto kGogGetUpdateTurnProof =
+    byte_array<0x8B, 0x4D, 0x08, 0xE8, 0xB0, 0xDE, 0x01, 0x00, 0x8B, 0x45, 0xFC, 0x8B, 0xE5, 0x5D, 0xC3>();
 constexpr auto kReceiveUpdatePreimage = byte_array<0x55, 0x8B, 0xEC, 0x8B, 0x4D, 0x08>();
 constexpr auto kGetLastReceivePreimage =
     byte_array<0x8D, 0x04, 0x49, 0xC1, 0xE0, 0x05, 0x05, 0x00, 0x00, 0x00, 0x00, 0xC3>();
@@ -51,8 +57,10 @@ constexpr UpdateRecoveryLayout kSteamLayout{
     .functions =
         {
             .construct_group = {.rva = 0x001AECA0, .expected = kConstructGroupPreimage},
-            .receive_group = {.rva = 0x001B2A60, .expected = kReceiveGroupPreimage},
-            .get_update_turn = {.rva = 0x001BB570, .expected = kGetUpdateTurnPreimage},
+            .receive_group_entry_rva = 0x001B2A60,
+            .receive_group_proof = {.rva = 0x001B2A72, .expected = kSteamReceiveGroupProof},
+            .get_update_turn_entry_rva = 0x001BB570,
+            .get_update_turn_proof = {.rva = 0x001BB598, .expected = kSteamGetUpdateTurnProof},
             .receive_update = {.rva = 0x001BB530, .expected = kReceiveUpdatePreimage},
             .get_last_receive = {.rva = 0x001B2C90, .expected = kGetLastReceivePreimage},
             .last_receive_table_rva = 0x01ACC0FC,
@@ -79,8 +87,10 @@ constexpr UpdateRecoveryLayout kGogLayout{
     .functions =
         {
             .construct_group = {.rva = 0x001AFC50, .expected = kConstructGroupPreimage},
-            .receive_group = {.rva = 0x001B3A00, .expected = kReceiveGroupPreimage},
-            .get_update_turn = {.rva = 0x001BC520, .expected = kGetUpdateTurnPreimage},
+            .receive_group_entry_rva = 0x001B3A00,
+            .receive_group_proof = {.rva = 0x001B3A12, .expected = kGogReceiveGroupProof},
+            .get_update_turn_entry_rva = 0x001BC520,
+            .get_update_turn_proof = {.rva = 0x001BC548, .expected = kGogGetUpdateTurnProof},
             .receive_update = {.rva = 0x001BC4E0, .expected = kReceiveUpdatePreimage},
             .get_last_receive = {.rva = 0x001B3C30, .expected = kGetLastReceivePreimage},
             .last_receive_table_rva = 0x01ACD5AC,
@@ -129,10 +139,10 @@ void add_layout_requirements(PatchPlan& plan, const ImageContext& image, const U
     plan.require_bytes("Validate update drain resume", layout.frame.resume.rva, layout.frame.resume.pattern());
     plan.require_bytes("Validate native packet-group construction", layout.functions.construct_group.rva,
                        layout.functions.construct_group.pattern());
-    plan.require_bytes("Validate native packet-group receive", layout.functions.receive_group.rva,
-                       layout.functions.receive_group.pattern());
-    plan.require_bytes("Validate native update-turn reader", layout.functions.get_update_turn.rva,
-                       layout.functions.get_update_turn.pattern());
+    plan.require_bytes("Validate native packet-group receive", layout.functions.receive_group_proof.rva,
+                       layout.functions.receive_group_proof.pattern());
+    plan.require_bytes("Validate native update-turn reader", layout.functions.get_update_turn_proof.rva,
+                       layout.functions.get_update_turn_proof.pattern());
     plan.require_bytes("Validate native update receiver", layout.functions.receive_update.rva,
                        layout.functions.receive_update.pattern());
     plan.require_bytes("Validate native last-receive lookup", layout.functions.get_last_receive.rva,

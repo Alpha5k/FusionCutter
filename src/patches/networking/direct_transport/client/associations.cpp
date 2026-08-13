@@ -1,7 +1,8 @@
 #include "transport.hpp"
 
+#include "../../network_pipeline/pipeline.hpp"
+
 #include "../shared/datagram.hpp"
-#include "../shared/game_hooks.hpp"
 
 #include <WinSock2.h>
 #include <Windows.h>
@@ -24,6 +25,7 @@ void ClientTransport::start_association(std::uint64_t lobby_id, std::uint64_t ow
     next.generation = next_generation_;
     next.diagnostics.reset(now);
     association_ = next;
+    observe_association(network_pipeline::DirectAssociationPhase::Started, now);
 
     if (!socket_.available()) {
         set_route(RouteState::GalaxyLocked, TransmitRoute::Galaxy, false, RouteReason::SocketUnavailable);
@@ -43,12 +45,39 @@ void ClientTransport::invalidate_association(AssociationEndReason reason) noexce
     if (!association_.live) {
         return;
     }
+    const auto now = GetTickCount64();
+    observe_association(network_pipeline::DirectAssociationPhase::Ended, now, reason);
     association_.diagnostics.finish("Client", kHostPrimary, association_.generation, association_.connection_id,
-                                    association_.state, reason, GetTickCount64());
+                                    association_.state, reason, now);
     const auto transmit_group = association_.transmit_group;
     association_ = {};
     association_.transmit_group = transmit_group;
     publish_status();
+}
+
+void ClientTransport::observe_association(network_pipeline::DirectAssociationPhase phase, std::uint64_t now,
+                                          AssociationEndReason end_reason, std::uint32_t attempts) noexcept {
+    const auto snapshot = association_.diagnostics.snapshot(now);
+    network_pipeline::observe_direct_association({
+        .slot = kHostPrimary,
+        .generation = association_.generation,
+        .connection_id = association_.connection_id,
+        .phase = phase,
+        .route = static_cast<std::uint8_t>(association_.state),
+        .route_reason = static_cast<std::uint8_t>(association_.diagnostics.route_reason()),
+        .end_reason = phase == network_pipeline::DirectAssociationPhase::Ended ? static_cast<std::uint8_t>(end_reason)
+                                                                               : std::uint8_t{},
+        .attempts = attempts,
+        .tx_datagrams = snapshot.tx_datagrams,
+        .rx_datagrams = snapshot.rx_datagrams,
+        .send_failures = snapshot.send_failures,
+        .endpoint_rejects = snapshot.endpoint_rejects,
+        .authentication_rejects = snapshot.authentication_rejects,
+        .replay_rejects = snapshot.replay_rejects,
+        .invalid_rejects = snapshot.invalid_rejects,
+        .elapsed_ms = snapshot.elapsed_ms,
+        .direct_ms = snapshot.direct_ms,
+    });
 }
 
 void ClientTransport::pump_control(std::uint64_t now) noexcept {
@@ -106,7 +135,7 @@ void ClientTransport::handle_control(const ParsedControl& control, ParseStatus s
                              "Enforce control message limit");
         association_.diagnostics.mark_policy_action();
         invalidate_association(AssociationEndReason::ControlLimit);
-        disconnect_native(kHostPrimary);
+        network_pipeline::disconnect_native(kHostPrimary);
         return;
     }
     if (status == ParseStatus::UnsupportedVersion && control.kind == ControlKind::Offer && control.version != 0 &&
@@ -182,8 +211,14 @@ void ClientTransport::handle_direct(std::span<const std::uint8_t> bytes, const E
     void* packet{};
     const auto built = build_native_packet(packet_factory_, direct.payload, packet);
     if (built == NativePacketResult::Built) {
-        submit_direct_native(packet, &association_.owner_user_id);
+        network_pipeline::submit_native(packet, &association_.owner_user_id);
         association_.diagnostics.direct_rx("Client", kHostPrimary, association_.generation, association_.connection_id);
+        network_pipeline::observe_direct_receive({
+            .slot = kHostPrimary,
+            .generation = association_.generation,
+            .connection_id = association_.connection_id,
+            .sequence = direct.datagram_sequence,
+        });
     } else if (built == NativePacketResult::RejectedPayload) {
         association_.diagnostics.reject(RejectionKind::Invalid);
     } else if (built == NativePacketResult::FactoryUnavailable) {
@@ -288,10 +323,13 @@ void ClientTransport::set_route(RouteState state, TransmitRoute route, bool rece
     association_.state = state;
     association_.transmit_route = route;
     association_.receive_permission = receive_permission;
-    if (state == RouteState::GalaxyLocked || state == RouteState::DirectLocked) {
+    if (entering_terminal) {
         association_.diagnostics.terminal_route(
             "Client", kHostPrimary, association_.generation, association_.connection_id, state, reason,
             GetTickCount64(), association_.caps_attempts + association_.probe_attempts + association_.ready_attempts);
+        observe_association(network_pipeline::DirectAssociationPhase::Terminal, GetTickCount64(),
+                            AssociationEndReason::Disconnected,
+                            association_.caps_attempts + association_.probe_attempts + association_.ready_attempts);
     }
     publish_status();
 }

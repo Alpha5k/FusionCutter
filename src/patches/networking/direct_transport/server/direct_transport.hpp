@@ -2,7 +2,7 @@
 
 #include "transport.hpp"
 #include "../patch.hpp"
-#include "../shared/game_hooks.hpp"
+#include "../shared/lobby_hooks.hpp"
 
 #include <FusionCutter/patch.hpp>
 
@@ -29,7 +29,8 @@ class DirectTransportServer final : public RuntimePatch, public StatusContributo
     Policy policy_;
     std::optional<OutcomeReason> policy_error_;
     ServerTransport transport_;
-    GameHooks hooks_;
+    LobbyHooks lobby_hooks_;
+    network_pipeline::TransportCallbacks pipeline_callbacks_;
     bool enabled_{};
 };
 

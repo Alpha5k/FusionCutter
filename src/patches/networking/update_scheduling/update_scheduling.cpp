@@ -1,6 +1,7 @@
 #include "update_scheduling.hpp"
 
 #include "layout.hpp"
+#include "../network_diagnostics/observations.hpp"
 
 namespace fusioncutter::patches::update_scheduling {
 namespace {
@@ -78,9 +79,11 @@ void UpdateScheduling::record_create(std::uint32_t player) noexcept {
         .pending_turn = read_native_field<std::int32_t>(pending_map, kPendingTurnOffset),
         .sent_time = *image_.read_at_rva<float>(layout::kNetworkTimeRva),
     };
+    network_diagnostics::observe_create_fence(player, fences_[player].pending_turn);
 }
 
-bool UpdateScheduling::fence_blocks(std::uint32_t player) noexcept {
+bool UpdateScheduling::fence_blocks(std::uint32_t player, bool& timed_out) noexcept {
+    timed_out = false;
     if (player >= kMaximumPlayers) {
         return false;
     }
@@ -113,11 +116,13 @@ bool UpdateScheduling::fence_blocks(std::uint32_t player) noexcept {
     free_object_map_(live_map);
     write_native_field(state, kPendingMapOffset, allocate_object_map_());
     fence = {};
+    timed_out = true;
     return false;
 }
 
 void UpdateScheduling::guard_sent_slot(MidHookContext& context) noexcept {
     const auto slot = read_native_field<std::int32_t>(reinterpret_cast<void*>(context.ebp - sizeof(std::int32_t)));
+    network_diagnostics::observe_ack_slot(slot, slot < 2);
     if (slot >= 2) {
         if (const auto* patch = gPatch.read(); patch != nullptr) {
             context.eip = patch->image_.address_at_rva(layout::kSentSlotSkipRva);
@@ -145,7 +150,10 @@ void UpdateScheduling::gate_destination(MidHookContext& context) noexcept {
     }
 
     const auto player = read_native_field<std::uint32_t>(reinterpret_cast<void*>(context.ebp - 0x10));
-    const auto resume = patch->fence_blocks(player) ? layout::kSkipDestinationRva : layout::kSendDestinationRva;
+    bool timed_out{};
+    const auto blocked = patch->fence_blocks(player, timed_out);
+    network_diagnostics::observe_destination_gate(player, blocked, timed_out);
+    const auto resume = blocked ? layout::kSkipDestinationRva : layout::kSendDestinationRva;
     context.eip = patch->image_.address_at_rva(resume);
 }
 

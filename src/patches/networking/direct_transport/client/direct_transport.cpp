@@ -24,14 +24,15 @@ namespace {
 } // namespace
 
 DirectTransportClient::DirectTransportClient(const TargetContext& target) noexcept
-    : layout_(layout_for(target.layout)), transport_(target.image, layout_), hooks_(target.image, layout_) {}
+    : layout_(layout_for(target.layout)), transport_(target.image, layout_), lobby_hooks_(target.image, layout_),
+      pipeline_callbacks_(make_pipeline_callbacks(transport_)) {}
 
 DirectTransportClient::~DirectTransportClient() {
     disable_runtime();
 }
 
 void DirectTransportClient::build_plan(PatchPlan& plan) {
-    hooks_.build_plan(plan);
+    lobby_hooks_.build_plan(plan);
 }
 
 std::expected<void, OutcomeReason> DirectTransportClient::prepare_runtime() {
@@ -39,11 +40,13 @@ std::expected<void, OutcomeReason> DirectTransportClient::prepare_runtime() {
 }
 
 void DirectTransportClient::enable_runtime() noexcept {
-    hooks_.enable(transport_);
+    lobby_hooks_.enable(transport_);
+    network_pipeline::publish_transport(pipeline_callbacks_);
 }
 
 void DirectTransportClient::disable_runtime() noexcept {
-    hooks_.disable(transport_);
+    network_pipeline::clear_transport(pipeline_callbacks_);
+    lobby_hooks_.disable(transport_);
     transport_.shutdown();
 }
 

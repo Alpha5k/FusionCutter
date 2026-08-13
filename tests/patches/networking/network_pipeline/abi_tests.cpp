@@ -1,10 +1,10 @@
-#include "../../../../src/patches/networking/direct_transport/shared/game_hooks.hpp"
+#include "../../../../src/patches/networking/network_pipeline/pipeline.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
 
-namespace direct_transport = fusioncutter::patches::direct_transport;
+namespace network_pipeline = fusioncutter::patches::network_pipeline;
 
 namespace {
 
@@ -22,6 +22,12 @@ struct CallState {
     std::uint32_t esi{};
     std::uint32_t edi{};
     std::uint32_t result{};
+};
+
+struct TestTransport {
+    std::uint32_t transmits{};
+    std::uint32_t groups_started{};
+    std::uint32_t groups_ended{};
 };
 
 Observation gFinal;
@@ -90,33 +96,34 @@ __declspec(naked) void invoke_game_send(void*, std::uint32_t, std::uint32_t, std
     }
 }
 
-class TestTransport final : public direct_transport::GameTransport {
-  public:
-    void before_receive() noexcept override {}
-    void after_receive() noexcept override {}
-    void on_native_transmit(int) noexcept override {
-        ++transmits;
-    }
-    int begin_transmit_group(int destination) noexcept override {
-        ++groups_started;
-        return destination;
-    }
-    void end_transmit_group(int) noexcept override {
-        ++groups_ended;
-    }
-    direct_transport::NativeTransmitResult transmit_native(int, int, std::span<const std::uint8_t>) noexcept override {
-        return {};
-    }
-    void on_native_intake(void*) noexcept override {}
-    void on_native_disconnect(int) noexcept override {}
-    void on_reset(std::uint8_t) noexcept override {}
-    void on_remote_member(const void*, std::uint32_t) noexcept override {}
-    void on_local_lobby_left() noexcept override {}
-
-    std::uint32_t transmits{};
-    std::uint32_t groups_started{};
-    std::uint32_t groups_ended{};
-};
+network_pipeline::TransportCallbacks callbacks_for(TestTransport& transport) noexcept {
+    return {
+        .context = &transport,
+        .before_receive = [](void*) noexcept {},
+        .after_receive = [](void*) noexcept {},
+        .native_transmit =
+            [](void* context, int) noexcept {
+                ++static_cast<TestTransport*>(context)->transmits;
+            },
+        .begin_group =
+            [](void* context, int destination) noexcept {
+                ++static_cast<TestTransport*>(context)->groups_started;
+                return destination;
+            },
+        .end_group =
+            [](void* context, int) noexcept {
+                ++static_cast<TestTransport*>(context)->groups_ended;
+            },
+        .send =
+            [](void*, int, int, std::span<const std::uint8_t>) noexcept {
+                return network_pipeline::NativeSendResult{};
+            },
+        .intake = [](void*, void*) noexcept {},
+        .disconnect = [](void*, int) noexcept {},
+        .disconnect_complete = [](void*, int) noexcept {},
+        .reset = [](void*, std::uint8_t) noexcept {},
+    };
+}
 
 [[nodiscard]] bool preserves_call_frame(const CallState& state) noexcept {
     return state.before_esp == state.after_esp && state.ebx == 0x11223344 && state.esi == 0x55667788 &&
@@ -125,14 +132,15 @@ class TestTransport final : public direct_transport::GameTransport {
 
 } // namespace
 
-TEST_CASE("Direct Transport preserves the game's nonstandard x86 send ABI") {
+TEST_CASE("Network Pipeline preserves the game's nonstandard x86 send ABI") {
     TestTransport transport;
-    direct_transport::configure_game_hooks_for_test(
-        transport, {reinterpret_cast<void*>(&synthetic_final_send), reinterpret_cast<void*>(&synthetic_group_send)});
+    const auto callbacks = callbacks_for(transport);
+    network_pipeline::configure_hooks_for_test(
+        callbacks, {reinterpret_cast<void*>(&synthetic_final_send), reinterpret_cast<void*>(&synthetic_group_send)});
 
     CallState final_state{};
-    invoke_game_send(direct_transport::game_hook_for_test(direct_transport::GameHookPoint::FinalSend), 17, 0x50607080,
-                     1009, &final_state);
+    invoke_game_send(network_pipeline::hook_for_test(network_pipeline::HookPoint::FinalSend), 17, 0x50607080, 1009,
+                     &final_state);
     CHECK(preserves_call_frame(final_state));
     CHECK(final_state.result == 77);
     CHECK(gFinal.calls == 1);
@@ -141,7 +149,7 @@ TEST_CASE("Direct Transport preserves the game's nonstandard x86 send ABI") {
     CHECK(gFinal.stack == 1009);
 
     CallState group_state{};
-    invoke_game_send(direct_transport::game_hook_for_test(direct_transport::GameHookPoint::GroupSend), 23, 0x60708090,
+    invoke_game_send(network_pipeline::hook_for_test(network_pipeline::HookPoint::GroupSend), 23, 0x60708090,
                      0xA0B0C0D0, &group_state);
     CHECK(preserves_call_frame(group_state));
     CHECK(gGroup.calls == 1);

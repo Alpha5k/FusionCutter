@@ -5,12 +5,6 @@
 namespace fusioncutter::patches::direct_transport::layouts {
 
 inline constexpr GameLayout kGogGame{
-    .final_send_rva = 0x0021'8EC0,
-    .group_send_rva = 0x001B'38A0,
-    .receive_rva = 0x001B'4170,
-    .intake_rva = 0x001B'4240,
-    .disconnect_rva = 0x001B'3A90,
-    .reset_rva = 0x001B'33D0,
     .remote_member_callback_rva = 0x001D'5D70,
     .remote_member_listener_rva = 0x003A'C8FC,
     .local_lobby_left_callback_rva = 0x001D'5CE0,

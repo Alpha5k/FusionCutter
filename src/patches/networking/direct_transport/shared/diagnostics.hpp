@@ -11,28 +11,28 @@
 namespace fusioncutter::patches::direct_transport {
 
 enum class RouteReason : std::uint8_t {
-    None,
-    CapabilityTimeout,
-    ProofTimeout,
-    ReadyTimeout,
-    CommitTimeout,
-    ProtocolIncompatible,
-    SocketUnavailable,
-    EndpointUnavailable,
-    Commit,
-    ImplicitCommit,
-    RandomGenerationFailed,
+    None = 0,
+    CapabilityTimeout = 1,
+    ProofTimeout = 2,
+    ReadyTimeout = 3,
+    CommitTimeout = 4,
+    ProtocolIncompatible = 5,
+    SocketUnavailable = 6,
+    EndpointUnavailable = 7,
+    Commit = 8,
+    ImplicitCommit = 9,
+    RandomGenerationFailed = 10,
 };
 
 enum class AssociationEndReason : std::uint8_t {
-    Disconnected,
-    Replaced,
-    HostChanged,
-    Reset,
-    LobbyLeft,
-    ControlLimit,
-    PolicyRemoval,
-    Shutdown,
+    Disconnected = 1,
+    Replaced = 2,
+    HostChanged = 3,
+    Reset = 4,
+    LobbyLeft = 5,
+    ControlLimit = 6,
+    PolicyRemoval = 7,
+    Shutdown = 8,
 };
 
 enum class RejectionKind : std::uint8_t {
@@ -40,6 +40,18 @@ enum class RejectionKind : std::uint8_t {
     Authentication,
     Replay,
     Invalid,
+};
+
+struct AssociationSnapshot {
+    std::uint32_t tx_datagrams;
+    std::uint32_t rx_datagrams;
+    std::uint32_t send_failures;
+    std::uint32_t endpoint_rejects;
+    std::uint32_t authentication_rejects;
+    std::uint32_t replay_rejects;
+    std::uint32_t invalid_rejects;
+    std::uint64_t elapsed_ms;
+    std::uint64_t direct_ms;
 };
 
 [[nodiscard]] const char* route_reason_name(RouteReason reason) noexcept;
@@ -109,6 +121,7 @@ class AssociationDiagnostics {
                 RouteState route, AssociationEndReason reason, std::uint64_t now) noexcept;
 
     [[nodiscard]] RouteReason route_reason() const noexcept;
+    [[nodiscard]] AssociationSnapshot snapshot(std::uint64_t now) const noexcept;
 
   private:
     std::uint64_t started_ms_{};

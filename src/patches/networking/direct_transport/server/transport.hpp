@@ -115,6 +115,9 @@ class ServerTransport final : public GameTransport, public EndpointSink {
     void invalidate_association(std::uint8_t physical_primary,
                                 AssociationEndReason reason = AssociationEndReason::Disconnected) noexcept;
     void invalidate_all(AssociationEndReason reason = AssociationEndReason::Disconnected) noexcept;
+    void observe_association(std::uint8_t physical_primary, network_pipeline::DirectAssociationPhase phase,
+                             std::uint64_t now, AssociationEndReason end_reason = AssociationEndReason::Disconnected,
+                             std::uint32_t attempts = 0) noexcept;
     // Drains the bounded Galaxy control channel and direct UDP socket.
     void pump_control(std::uint64_t now) noexcept;
     void pump_direct() noexcept;

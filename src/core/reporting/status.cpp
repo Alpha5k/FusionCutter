@@ -154,36 +154,21 @@ void debug_output(std::string_view message, DWORD error) noexcept {
     OutputDebugStringA(text.c_str());
 }
 
-void remove_file(const std::filesystem::path& path) noexcept {
-    std::error_code ignored;
-    std::filesystem::remove(path, ignored);
-}
-
-[[nodiscard]] bool write_status_file(const std::filesystem::path& path, const std::filesystem::path& temporary_path,
-                                     std::string_view content) noexcept {
+[[nodiscard]] bool write_status_file(const std::filesystem::path& path, std::string_view content) noexcept {
     try {
-        std::ofstream output(temporary_path, std::ios::binary | std::ios::trunc);
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
         if (!output) {
-            debug_output("the temporary file could not be opened", GetLastError());
+            debug_output("the status file could not be opened", GetLastError());
             return false;
         }
         output.write(content.data(), static_cast<std::streamsize>(content.size()));
         output.close();
         if (!output) {
-            debug_output("the temporary file could not be written", GetLastError());
-            remove_file(temporary_path);
-            return false;
-        }
-
-        if (!MoveFileExW(temporary_path.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-            const auto error = GetLastError();
-            debug_output("the snapshot could not replace the status file", error);
-            remove_file(temporary_path);
+            debug_output("the status file could not be written", GetLastError());
             return false;
         }
         return true;
     } catch (...) {
-        remove_file(temporary_path);
         debug_output("an unexpected file error occurred", ERROR_GEN_FAILURE);
         return false;
     }
@@ -191,9 +176,7 @@ void remove_file(const std::filesystem::path& path) noexcept {
 
 } // namespace
 
-StatusPublisher::StatusPublisher(std::filesystem::path path) : path_(std::move(path)), temporary_path_(path_) {
-    temporary_path_.replace_extension(L".tmp");
-}
+StatusPublisher::StatusPublisher(std::filesystem::path path) : path_(std::move(path)) {}
 
 void StatusPublisher::set_target(const TargetContext& target) {
     const std::scoped_lock lock(mutex_);
@@ -339,7 +322,7 @@ void StatusPublisher::publish(const LogStatus& log_status, bool force) noexcept 
         if (output == previous_output_) {
             return;
         }
-        if (write_status_file(path_, temporary_path_, output)) {
+        if (write_status_file(path_, output)) {
             previous_output_ = std::move(output);
         }
     } catch (...) {

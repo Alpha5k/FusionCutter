@@ -1,6 +1,7 @@
 #include "update_recovery.hpp"
 
 #include "ordering.hpp"
+#include "../network_diagnostics/observations.hpp"
 
 #include <cstddef>
 
@@ -16,8 +17,8 @@ constexpr int kCompleteUpdatePacketType = 0x0C;
 LateUpdateRecovery::LateUpdateRecovery(const TargetContext& target) noexcept
     : layout_(layout_for(target.layout)), image_(target.image),
       construct_group_(image_.function_at_rva<ConstructGroup>(layout_.functions.construct_group.rva)),
-      receive_group_(image_.function_at_rva<ReceiveGroup>(layout_.functions.receive_group.rva)),
-      get_update_turn_(image_.function_at_rva<GetUpdateTurn>(layout_.functions.get_update_turn.rva)),
+      receive_group_(image_.function_at_rva<ReceiveGroup>(layout_.functions.receive_group_entry_rva)),
+      get_update_turn_(image_.function_at_rva<GetUpdateTurn>(layout_.functions.get_update_turn_entry_rva)),
       receive_update_(image_.function_at_rva<ReceiveUpdate>(layout_.functions.receive_update.rva)),
       get_last_receive_(image_.function_at_rva<GetLastReceive>(layout_.functions.get_last_receive.rva)),
       host_cycle_timer_(image_.mutable_at_rva<float>(layout_.state.host_cycle_timer_rva)),
@@ -54,6 +55,9 @@ void LateUpdateRecovery::recover_complete_updates(MidHookContext& context) noexc
 }
 
 void LateUpdateRecovery::drain(float receive_timestamp, int pipe_index_base) noexcept {
+    std::uint32_t recovered{};
+    std::uint32_t oldest_turn{};
+    std::uint32_t newest_turn{};
     for (;;) {
         std::size_t count{};
         for (; count < updates_.size(); ++count) {
@@ -66,17 +70,26 @@ void LateUpdateRecovery::drain(float receive_timestamp, int pipe_index_base) noe
         }
 
         if (count == 0) {
+            if (recovered != 0) {
+                network_diagnostics::observe_update_recovery(recovered, oldest_turn, newest_turn);
+            }
             return;
         }
 
         auto batch = std::span{updates_}.first(count);
         order_updates_by_turn(batch);
+        if (recovered == 0) {
+            oldest_turn = batch.front().turn;
+        }
+        newest_turn = batch.back().turn;
+        recovered += static_cast<std::uint32_t>(count);
         for (auto& update : batch) {
             receive_update_(update.group.data());
             refresh_receive_timers(receive_timestamp, pipe_index_base);
         }
 
         if (count < updates_.size()) {
+            network_diagnostics::observe_update_recovery(recovered, oldest_turn, newest_turn);
             return;
         }
     }

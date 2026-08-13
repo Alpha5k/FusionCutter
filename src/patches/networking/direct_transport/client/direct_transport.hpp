@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../shared/game_hooks.hpp"
+#include "../shared/lobby_hooks.hpp"
 #include "transport.hpp"
 
 #include <FusionCutter/patch.hpp>
@@ -24,7 +24,8 @@ class DirectTransportClient final : public RuntimePatch, public StatusContributo
   private:
     const GameLayout& layout_;
     ClientTransport transport_;
-    GameHooks hooks_;
+    LobbyHooks lobby_hooks_;
+    network_pipeline::TransportCallbacks pipeline_callbacks_;
 };
 
 } // namespace fusioncutter::patches::direct_transport::client

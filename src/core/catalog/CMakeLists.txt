@@ -31,7 +31,7 @@ target_link_libraries(fusioncutter_catalog PUBLIC
 )
 
 if(FC_ARCHITECTURE STREQUAL "x86")
-    target_link_libraries(fusioncutter_catalog PUBLIC Bcrypt Ws2_32)
+    target_link_libraries(fusioncutter_catalog PUBLIC Advapi32 Bcrypt Ws2_32)
 endif()
 
 fc_configure_project_target(fusioncutter_catalog)

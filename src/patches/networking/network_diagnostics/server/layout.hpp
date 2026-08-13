@@ -1,0 +1,109 @@
+#pragma once
+
+#include "../combat.hpp"
+
+#include <FusionCutter/patching.hpp>
+
+#include <cstdint>
+
+namespace fusioncutter::patches::network_diagnostics::server {
+
+struct ServerLayout {
+    NativeSite<9> game_update;
+    NativeSite<8> submit_move;
+    NativeSite<8> receive_host;
+    NativeSite<8> rollback_late_moves;
+    NativeSite<8> save_late_state;
+    NativeSite<8> finish_turn;
+    NativeSite<13> send_host;
+    NativeSite<9> write_update;
+    NativeSite<8> read_move;
+    NativeSite<8> read_mini_move;
+    NativeSite<7> fill_turns;
+    NativeSite<6> receive_primary;
+    NativeSite<7> ack_reconstruction;
+    NativeSite<8> receive_group;
+    NativeSite<6> write_objects;
+    NativeSite<6> write_player_moves;
+    NativeSite<8> send_reliable_events;
+    NativeSite<6> send_events;
+    NativeSite<8> create_ordnance_event;
+    NativeSite<10> player_controller_update;
+    CombatLayout combat;
+    std::uint32_t soldier_controllable_vtable_rva;
+    std::uint32_t host_turn_rva;
+    std::uint32_t client_turn_rva;
+    std::uint32_t accumulator_rva;
+    std::uint32_t simulation_delta_rva;
+    std::uint32_t fixed_delta_rva;
+    std::uint32_t time_scale_rva;
+    std::uint32_t required_mask_rva;
+    std::uint32_t received_masks_rva;
+    std::uint32_t current_destination_rva;
+    std::uint32_t move_ring_rva;
+    std::uint32_t event_head_rva;
+    std::uint32_t event_cursor_rva;
+    std::uint32_t filled_turn_count_rva;
+    std::uint32_t network_enabled_rva;
+    std::uint32_t waitlate_rva;
+    std::uint32_t waitlate_grace_rva;
+    std::uint32_t lead_turns_rva;
+    std::uint32_t maximum_step_turns_rva;
+};
+
+inline constexpr ServerLayout kGogLayout{
+    .game_update = {0x0013'3140, byte_array<0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8, 0x83, 0xEC, 0x40>()},
+    .submit_move = {0x001B'A5D0, byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x4C, 0x0F, 0xB6>()},
+    .receive_host = {0x001B'A2F0, byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x44, 0x0F, 0xB6>()},
+    .rollback_late_moves = {0x001B'B0C0, byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x54, 0x0F, 0xB6>()},
+    .save_late_state = {0x001B'AF50, byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x18, 0x0F, 0xB6>()},
+    .finish_turn = {0x001B'B5F0, byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x08, 0x0F, 0xB6>()},
+    .send_host = {0x001B'A200,
+                  byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x0C, 0x32, 0xC9, 0xE8, 0x43, 0xD0, 0x01, 0x00>()},
+    .write_update = {0x001B'C0B0, byte_array<0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x2C, 0x0C, 0x00, 0x00>()},
+    .read_move = {0x001C'BDB0, byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x08, 0x8D, 0x45>()},
+    .read_mini_move = {0x001C'BFC0, byte_array<0x55, 0x8B, 0xEC, 0x8B, 0x45, 0x0C, 0x8B, 0x0D>()},
+    .fill_turns = {0x001C'9AA0, byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x14, 0xA1>()},
+    .receive_primary = {0x001C'AED0, byte_array<0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68>()},
+    .ack_reconstruction = {0x001C'B3FB, byte_array<0x83, 0xC4, 0x08, 0x83, 0x7D, 0xD0, 0xFF>()},
+    .receive_group = {0x001B'3A00, byte_array<0x56, 0x8B, 0xF2, 0xBA, 0x1E, 0x00, 0x00, 0x00>()},
+    .write_objects = {0x001C'D6A0, byte_array<0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68>()},
+    .write_player_moves = {0x001D'36C0, byte_array<0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68>()},
+    .send_reliable_events = {0x001C'0510, byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x34, 0x69, 0x05>()},
+    .send_events = {0x001B'FD70, byte_array<0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68>()},
+    .create_ordnance_event = {0x001B'F4E0, byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x38, 0x6B, 0x05>()},
+    .player_controller_update = {0x0021'B320, byte_array<0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF0, 0x81, 0xEC, 0x08, 0x06>()},
+    .combat =
+        {
+            .weapon_fire = {0x0028'03A0, byte_array<0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF0, 0x64, 0xA1>()},
+            .fire_matrix = {0x0028'03F4,
+                            byte_array<0x8B, 0x56, 0x64, 0xC7, 0x44, 0x24, 0x18, 0x00, 0x00, 0x00, 0x00>()},
+            .bullet_build = {0x001F'D2D0, byte_array<0x55, 0x8B, 0xEC, 0x6A, 0xFF>()},
+            .bullet_update = {0x001F'BF80, byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x18, 0x80, 0x3D>()},
+            .ray_hit = {0x0005'E3A0, byte_array<0x55, 0x8B, 0xEC, 0x0F, 0x2E, 0x15, 0xD4, 0x2D, 0x7B, 0x00>(),
+                        byte_array<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00>()},
+            .ray_return = {0x0005'F2F9, byte_array<0x5F, 0x5E, 0x89, 0x01, 0x5B>()},
+            .apply_damage = {0x0008'95E0, byte_array<0x55, 0x8B, 0xEC, 0x51, 0x56, 0x8B, 0xF1>()},
+        },
+    .soldier_controllable_vtable_rva = 0x0039'DECC,
+    .host_turn_rva = 0x01BA'9C4C,
+    .client_turn_rva = 0x01A6'6054,
+    .accumulator_rva = 0x01A5'74D0,
+    .simulation_delta_rva = 0x01A5'74EC,
+    .fixed_delta_rva = 0x01A6'4368,
+    .time_scale_rva = 0x01BA'9C30,
+    .required_mask_rva = 0x01BA'9D60,
+    .received_masks_rva = 0x01A6'6298,
+    .current_destination_rva = 0x01BA'9C2C,
+    .move_ring_rva = 0x01AD'9EB0,
+    .event_head_rva = 0x01BA'9C40,
+    .event_cursor_rva = 0x01AC'EF88,
+    .filled_turn_count_rva = 0x01AC'F088,
+    .network_enabled_rva = 0x01A6'4359,
+    .waitlate_rva = 0x01A6'4400,
+    .waitlate_grace_rva = 0x001B'AAD0,
+    .lead_turns_rva = 0x01BA'BB64,
+    .maximum_step_turns_rva = 0x001B'ACE2,
+};
+
+} // namespace fusioncutter::patches::network_diagnostics::server

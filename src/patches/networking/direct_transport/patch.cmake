@@ -8,8 +8,9 @@ fc_patch(
         shared/datagram.cpp
         shared/diagnostics.cpp
         shared/galaxy.cpp
-        shared/game_hooks.cpp
+        shared/game_transport.cpp
         shared/game_layout.cpp
+        shared/lobby_hooks.cpp
         shared/native_packet.cpp
         shared/protocol.cpp
         shared/security.cpp

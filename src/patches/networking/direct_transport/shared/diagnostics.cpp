@@ -252,6 +252,20 @@ RouteReason AssociationDiagnostics::route_reason() const noexcept {
     return route_reason_;
 }
 
+AssociationSnapshot AssociationDiagnostics::snapshot(std::uint64_t now) const noexcept {
+    return {
+        .tx_datagrams = tx_datagrams_,
+        .rx_datagrams = rx_datagrams_,
+        .send_failures = send_failures_,
+        .endpoint_rejects = endpoint_rejects_,
+        .authentication_rejects = authentication_rejects_,
+        .replay_rejects = replay_rejects_,
+        .invalid_rejects = invalid_rejects_,
+        .elapsed_ms = elapsed(now, started_ms_),
+        .direct_ms = direct_entered_ ? elapsed(now, direct_started_ms_) : 0,
+    };
+}
+
 bool is_internal_socket_error(std::int32_t error) noexcept {
     return error == kInvalidSocketOperation || error == WSAENOTSOCK || error == WSAESHUTDOWN ||
            error == WSANOTINITIALISED || error == WSAEFAULT || error == WSAEAFNOSUPPORT;
