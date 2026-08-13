@@ -45,7 +45,7 @@ class ServerTransport final : public GameTransport, public EndpointSink {
     // Discovers or refreshes a player association from native packet activity.
     void on_native_transmit(int physical_primary) noexcept override;
     // Pins one carrier across each nested native transmit group.
-    [[nodiscard]] int begin_transmit_group(int physical_primary) noexcept override;
+    [[nodiscard]] int begin_transmit_group(int physical_primary, int packet_type) noexcept override;
     void end_transmit_group(int physical_primary) noexcept override;
     // Sends a native packet through Direct when the pinned route requires it.
     [[nodiscard]] NativeTransmitResult transmit_native(int physical_primary, int group_primary,
@@ -142,6 +142,12 @@ class ServerTransport final : public GameTransport, public EndpointSink {
     void set_route(std::uint8_t physical_primary, RouteState state, TransmitRoute route, bool receive_permission,
                    RouteReason reason = RouteReason::None) noexcept;
     void publish_route_counts() noexcept;
+    [[nodiscard]] bool direct_route_ready(std::uint8_t physical_primary) const noexcept;
+    // Sends one native fragment with Direct sequence and authentication assigned at this call.
+    [[nodiscard]] NativeTransmitResult send_direct_packet(std::uint8_t physical_primary,
+                                                          std::span<const std::uint8_t> bytes) noexcept;
+    static void send_paced_packet(void* context, std::uint8_t physical_primary,
+                                  std::span<const std::uint8_t> bytes) noexcept;
     // Rejects callbacks that arrive outside the claimed game network thread.
     [[nodiscard]] bool claim_network_thread(std::string_view operation) noexcept;
     [[nodiscard]] bool on_network_thread(std::string_view operation) noexcept;

@@ -92,6 +92,26 @@ template <typename Value>
     std::unreachable();
 }
 
+[[nodiscard]] trace::OutputPacingOutcome pacing_outcome(network_pipeline::OutputPacingOutcome outcome) noexcept {
+    switch (outcome) {
+    case network_pipeline::OutputPacingOutcome::Immediate:
+        return trace::OutputPacingOutcome::Immediate;
+    case network_pipeline::OutputPacingOutcome::Held:
+        return trace::OutputPacingOutcome::Held;
+    case network_pipeline::OutputPacingOutcome::CapLimited:
+        return trace::OutputPacingOutcome::CapLimited;
+    case network_pipeline::OutputPacingOutcome::QueueCollision:
+        return trace::OutputPacingOutcome::QueueCollision;
+    case network_pipeline::OutputPacingOutcome::LifecycleDiscard:
+        return trace::OutputPacingOutcome::LifecycleDiscard;
+    case network_pipeline::OutputPacingOutcome::ModeTransition:
+        return trace::OutputPacingOutcome::ModeTransition;
+    case network_pipeline::OutputPacingOutcome::CapacityExceeded:
+        return trace::OutputPacingOutcome::CapacityExceeded;
+    }
+    std::unreachable();
+}
+
 [[nodiscard]] trace::Carrier association_carrier(trace::DirectRoute route) noexcept {
     switch (route) {
     case trace::DirectRoute::Native:
@@ -140,6 +160,10 @@ network_pipeline::DiagnosticsCallbacks make_pipeline_callbacks(NetworkDiagnostic
         .direct_receive =
             [](void* context, const network_pipeline::DirectReceiveObservation& observation) noexcept {
                 diagnostics_from(context).observe_direct_receive(observation);
+            },
+        .output_pacing =
+            [](void* context, const network_pipeline::OutputPacingObservation& observation) noexcept {
+                diagnostics_from(context).observe_output_pacing(observation);
             },
     };
 }
@@ -378,6 +402,26 @@ void NetworkDiagnostics::observe_direct_receive(
     if (observation.slot >= 0 && observation.slot < 64) {
         record.direct_player_mask |= std::uint64_t{1} << static_cast<std::uint32_t>(observation.slot);
     }
+}
+
+void NetworkDiagnostics::observe_output_pacing(const network_pipeline::OutputPacingObservation& observation) noexcept {
+    const trace::OutputPacingRecord record{
+        .slot = observation.slot,
+        .generation = observation.generation,
+        .outcome = pacing_outcome(observation.outcome),
+        .fragment_count = observation.fragment_count,
+        .bytes = observation.bytes,
+        .completion_ns = observation.completion_ns,
+        .release_ns = observation.release_ns,
+    };
+    auto flags = trace::RecordFlags::None;
+    if (observation.outcome == network_pipeline::OutputPacingOutcome::QueueCollision ||
+        observation.outcome == network_pipeline::OutputPacingOutcome::LifecycleDiscard ||
+        observation.outcome == network_pipeline::OutputPacingOutcome::CapacityExceeded) {
+        flags = trace::RecordFlags::Anomaly;
+    }
+    recorder_.submit(trace::RecordKind::OutputPacing, trace::payload_bytes(record),
+                     static_cast<std::uint32_t>(observation.slot), flags, trace::Carrier::Direct);
 }
 
 } // namespace fusioncutter::patches::network_diagnostics

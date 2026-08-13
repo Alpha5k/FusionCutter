@@ -31,6 +31,7 @@ class NetworkDiagnostics final : public RuntimePatch, public StatusContributor {
     void observe_reset(std::uint8_t mode) noexcept;
     void observe_direct_association(const network_pipeline::DirectAssociationObservation& observation) noexcept;
     void observe_direct_receive(const network_pipeline::DirectReceiveObservation& observation) noexcept;
+    void observe_output_pacing(const network_pipeline::OutputPacingObservation& observation) noexcept;
 
   private:
     NetworkDiagnosticsSettings settings_;

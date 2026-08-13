@@ -1,5 +1,6 @@
 #include "transport.hpp"
 
+#include "output_pacing.hpp"
 #include "../shared/datagram.hpp"
 
 #include <WinSock2.h>
@@ -26,6 +27,7 @@ void ServerTransport::before_receive() noexcept {
 void ServerTransport::after_receive() noexcept {
     if (on_network_thread("Service server associations")) {
         service_associations(GetTickCount64());
+        service_output_pacing({this, &ServerTransport::send_paced_packet});
     }
 }
 
@@ -49,7 +51,7 @@ void ServerTransport::on_native_transmit(int physical_primary) noexcept {
     start_association(static_cast<std::uint8_t>(resolved), identity, GetTickCount64());
 }
 
-int ServerTransport::begin_transmit_group(int destination) noexcept {
+int ServerTransport::begin_transmit_group(int destination, int packet_type) noexcept {
     if (!on_network_thread("Begin server transmit group")) {
         return -1;
     }
@@ -58,7 +60,8 @@ int ServerTransport::begin_transmit_group(int destination) noexcept {
         return -1;
     }
     auto& association = associations_[resolved];
-    if (!association.transmit_group.active() && association.transmit_route == TransmitRoute::DirectPending) {
+    const auto outermost = !association.transmit_group.active();
+    if (outermost && association.transmit_route == TransmitRoute::DirectPending) {
         set_route(static_cast<std::uint8_t>(resolved), association.state, TransmitRoute::Direct,
                   association.receive_permission);
     }
@@ -66,6 +69,9 @@ int ServerTransport::begin_transmit_group(int destination) noexcept {
     if (!association.transmit_group.begin(association.generation, carrier)) {
         runtime_log_.error("The server transmit-group depth overflowed", "Begin server transmit group");
         return -1;
+    }
+    if (outermost && carrier == Carrier::Direct) {
+        begin_output_group(static_cast<std::uint8_t>(resolved), association.generation, packet_type);
     }
     return resolved;
 }
@@ -77,6 +83,10 @@ void ServerTransport::end_transmit_group(int physical_primary) noexcept {
     auto& association = associations_[physical_primary];
     if (!on_network_thread("End server transmit group")) {
         return;
+    }
+    if (association.transmit_group.outermost() && association.transmit_group.carrier() == Carrier::Direct) {
+        end_output_group(static_cast<std::uint8_t>(physical_primary), association.generation,
+                         {this, &ServerTransport::send_paced_packet});
     }
     if (!association.transmit_group.end()) {
         runtime_log_.error("A server transmit group ended without a matching begin", "End server transmit group");
@@ -121,11 +131,23 @@ NativeTransmitResult ServerTransport::transmit_native(int destination, int group
     if (carrier != Carrier::Direct) {
         return {};
     }
-    if (association.state != RouteState::DirectLocked || !association.committed_endpoint.valid() ||
-        !socket_.available()) {
+    if (!direct_route_ready(static_cast<std::uint8_t>(resolved))) {
         runtime_log_.error("The server selected Direct without a usable transport", "Validate server direct route");
         return {.result = -1, .error = WSAENOTCONN, .handled = true};
     }
+    if (grouped && route_output_packet(static_cast<std::uint8_t>(resolved), association.generation, bytes,
+                                       {this, &ServerTransport::send_paced_packet}) == PacingPacketAction::Buffered) {
+        return {
+            .result = static_cast<std::int32_t>(bytes.size()),
+            .handled = true,
+        };
+    }
+    return send_direct_packet(static_cast<std::uint8_t>(resolved), bytes);
+}
+
+NativeTransmitResult ServerTransport::send_direct_packet(std::uint8_t physical_primary,
+                                                         std::span<const std::uint8_t> bytes) noexcept {
+    auto& association = associations_[physical_primary];
     const auto result =
         send_direct_data(socket_, send_buffer_, Direction::ServerToClient, association.session_key,
                          association.connection_id, association.send_sequence++, association.committed_endpoint, bytes);
@@ -140,10 +162,29 @@ NativeTransmitResult ServerTransport::transmit_native(int destination, int group
             runtime_log_.socket("Send direct UDP data", result.error, is_internal_socket_error(result.error));
         }
     } else {
-        association.diagnostics.direct_tx("Server", static_cast<std::uint8_t>(resolved), association.generation,
+        association.diagnostics.direct_tx("Server", physical_primary, association.generation,
                                           association.connection_id);
     }
     return result;
+}
+
+void ServerTransport::send_paced_packet(void* context, std::uint8_t physical_primary,
+                                        std::span<const std::uint8_t> bytes) noexcept {
+    auto& transport = *static_cast<ServerTransport*>(context);
+    if (!transport.direct_route_ready(physical_primary)) {
+        transport.runtime_log_.error("A paced server packet lost its Direct route", "Release paced server update");
+        return;
+    }
+    static_cast<void>(transport.send_direct_packet(physical_primary, bytes));
+}
+
+bool ServerTransport::direct_route_ready(std::uint8_t physical_primary) const noexcept {
+    if (physical_primary >= associations_.size()) {
+        return false;
+    }
+    const auto& association = associations_[physical_primary];
+    return association.live && association.state == RouteState::DirectLocked &&
+           association.committed_endpoint.valid() && socket_.available();
 }
 
 void ServerTransport::on_native_intake(void* endpoint) noexcept {

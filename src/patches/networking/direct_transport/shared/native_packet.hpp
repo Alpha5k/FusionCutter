@@ -8,6 +8,8 @@ namespace fusioncutter::patches::direct_transport {
 
 inline constexpr std::uint8_t kPhysicalAssociationCount = 64;
 inline constexpr std::uint8_t kNativeEndpointCount = 67;
+// Native group size and fragment index are carried in one byte each.
+inline constexpr std::size_t kMaximumNativeGroupFragments = 255;
 inline constexpr std::size_t kNativeEndpointStride = 0x60;
 inline constexpr std::size_t kNativeEndpointConnectedOffset = 0x20;
 inline constexpr std::size_t kNativeEndpointTableRequiredBytes =

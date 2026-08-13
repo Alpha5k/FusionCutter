@@ -28,6 +28,7 @@ struct TestTransport {
     std::uint32_t transmits{};
     std::uint32_t groups_started{};
     std::uint32_t groups_ended{};
+    std::uint32_t group_type{};
 };
 
 Observation gFinal;
@@ -106,8 +107,10 @@ network_pipeline::TransportCallbacks callbacks_for(TestTransport& transport) noe
                 ++static_cast<TestTransport*>(context)->transmits;
             },
         .begin_group =
-            [](void* context, int destination) noexcept {
-                ++static_cast<TestTransport*>(context)->groups_started;
+            [](void* context, int destination, int packet_type) noexcept {
+                auto& transport = *static_cast<TestTransport*>(context);
+                ++transport.groups_started;
+                transport.group_type = static_cast<std::uint32_t>(packet_type);
                 return destination;
             },
         .end_group =
@@ -159,4 +162,5 @@ TEST_CASE("Network Pipeline preserves the game's nonstandard x86 send ABI") {
     CHECK(transport.transmits == 1);
     CHECK(transport.groups_started == 1);
     CHECK(transport.groups_ended == 1);
+    CHECK(transport.group_type == 0x60708090);
 }

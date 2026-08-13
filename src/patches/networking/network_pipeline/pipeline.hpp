@@ -54,13 +54,33 @@ struct DirectReceiveObservation {
     std::uint32_t sequence;
 };
 
+enum class OutputPacingOutcome : std::uint8_t {
+    Immediate = 1,
+    Held = 2,
+    CapLimited = 3,
+    QueueCollision = 4,
+    LifecycleDiscard = 5,
+    ModeTransition = 6,
+    CapacityExceeded = 7,
+};
+
+struct OutputPacingObservation {
+    std::int32_t slot;
+    std::uint32_t generation;
+    OutputPacingOutcome outcome;
+    std::uint16_t fragment_count;
+    std::uint32_t bytes;
+    std::uint64_t completion_ns;
+    std::uint64_t release_ns;
+};
+
 // Connects the shared game hooks to one role-specific transport implementation.
 struct TransportCallbacks {
     void* context;
     void (*before_receive)(void*) noexcept;
     void (*after_receive)(void*) noexcept;
     void (*native_transmit)(void*, int) noexcept;
-    int (*begin_group)(void*, int) noexcept;
+    int (*begin_group)(void*, int, int) noexcept;
     void (*end_group)(void*, int) noexcept;
     NativeSendResult (*send)(void*, int, int, std::span<const std::uint8_t>) noexcept;
     void (*intake)(void*, void*) noexcept;
@@ -80,6 +100,7 @@ struct DiagnosticsCallbacks {
     void (*reset)(void*, std::uint8_t) noexcept;
     void (*direct_association)(void*, const DirectAssociationObservation&) noexcept;
     void (*direct_receive)(void*, const DirectReceiveObservation&) noexcept;
+    void (*output_pacing)(void*, const OutputPacingObservation&) noexcept;
 };
 
 void publish_transport(const TransportCallbacks& callbacks) noexcept;
@@ -88,6 +109,7 @@ void publish_diagnostics(const DiagnosticsCallbacks& callbacks) noexcept;
 void clear_diagnostics(const DiagnosticsCallbacks& callbacks) noexcept;
 void observe_direct_association(const DirectAssociationObservation& observation) noexcept;
 void observe_direct_receive(const DirectReceiveObservation& observation) noexcept;
+void observe_output_pacing(const OutputPacingObservation& observation) noexcept;
 
 // Re-enters the preserved native disconnect path for a policy-driven removal.
 void disconnect_native(int physical_primary) noexcept;

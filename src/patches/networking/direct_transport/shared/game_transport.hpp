@@ -42,6 +42,10 @@ class TransmitGroupState {
         return depth_ != 0;
     }
 
+    [[nodiscard]] bool outermost() const noexcept {
+        return depth_ == 1;
+    }
+
     [[nodiscard]] bool belongs_to(std::uint32_t generation) const noexcept {
         return active() && generation_ == generation;
     }
@@ -66,7 +70,7 @@ class GameTransport {
     virtual void after_receive() noexcept = 0;
     // Selects and pins the carrier used by one native transmit path.
     virtual void on_native_transmit(int physical_primary) noexcept = 0;
-    [[nodiscard]] virtual int begin_transmit_group(int physical_primary) noexcept = 0;
+    [[nodiscard]] virtual int begin_transmit_group(int physical_primary, int packet_type) noexcept = 0;
     virtual void end_transmit_group(int physical_primary) noexcept = 0;
     [[nodiscard]] virtual NativeTransmitResult transmit_native(int physical_primary, int group_primary,
                                                                std::span<const std::uint8_t> bytes) noexcept = 0;

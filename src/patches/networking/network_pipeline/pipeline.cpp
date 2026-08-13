@@ -120,7 +120,7 @@ __declspec(naked) int hook_final_send() {
 }
 
 // Adapts the group-send routine's register and caller-clean stack arguments.
-__declspec(naked) void __fastcall call_group_send_original(int, void*, void*, RawFunction) {
+__declspec(naked) void __fastcall call_group_send_original(int, int, void*, RawFunction) {
     __asm {
         push dword ptr [esp + 4]
         call dword ptr [esp + 12]
@@ -130,14 +130,14 @@ __declspec(naked) void __fastcall call_group_send_original(int, void*, void*, Ra
 }
 
 // Pins one transport carrier while the game emits a native packet group.
-void __fastcall on_group_send(int destination, void* native_argument, void* group, const void*) noexcept {
+void __fastcall on_group_send(int destination, int packet_type, void* group, const void*) noexcept {
     const auto incoming_errors = LastErrors::capture();
     const auto previous_group = gTransmitGroupPrimary;
     auto group_primary = -1;
     const auto* transport = gTransport.load(std::memory_order_acquire);
     if (transport != nullptr) {
         transport->native_transmit(transport->context, destination);
-        group_primary = transport->begin_group(transport->context, destination);
+        group_primary = transport->begin_group(transport->context, destination, packet_type);
         gTransmitGroupPrimary = group_primary;
     }
     if (const auto* diagnostics = gDiagnostics.load(std::memory_order_acquire); diagnostics != nullptr) {
@@ -146,7 +146,7 @@ void __fastcall on_group_send(int destination, void* native_argument, void* grou
 
     incoming_errors.restore();
     if (const auto original = group_send_original(); original != nullptr) {
-        call_group_send_original(destination, native_argument, group, original);
+        call_group_send_original(destination, packet_type, group, original);
     }
     const auto outgoing_errors = LastErrors::capture();
     if (const auto* diagnostics = gDiagnostics.load(std::memory_order_acquire); diagnostics != nullptr) {
@@ -300,6 +300,13 @@ void observe_direct_receive(const DirectReceiveObservation& observation) noexcep
     if (const auto* diagnostics = gDiagnostics.load(std::memory_order_acquire);
         diagnostics != nullptr && diagnostics->direct_receive != nullptr) {
         diagnostics->direct_receive(diagnostics->context, observation);
+    }
+}
+
+void observe_output_pacing(const OutputPacingObservation& observation) noexcept {
+    if (const auto* diagnostics = gDiagnostics.load(std::memory_order_acquire);
+        diagnostics != nullptr && diagnostics->output_pacing != nullptr) {
+        diagnostics->output_pacing(diagnostics->context, observation);
     }
 }
 

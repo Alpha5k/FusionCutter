@@ -38,6 +38,7 @@ fc_patch_sources(
         server/direct_transport.cpp
         server/endpoint.cpp
         server/native.cpp
+        server/output_pacing.cpp
         server/removals.cpp
         server/transport.cpp
 )

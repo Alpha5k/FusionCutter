@@ -45,7 +45,7 @@ void ClientTransport::on_native_transmit(int physical_primary) noexcept {
     start_association(lobby_id, owner_user_id, GetTickCount64());
 }
 
-int ClientTransport::begin_transmit_group(int physical_primary) noexcept {
+int ClientTransport::begin_transmit_group(int physical_primary, int) noexcept {
     if (physical_primary != kHostPrimary || !on_network_thread("Begin client transmit group") || !association_.live ||
         !current_host(association_.lobby_id)) {
         return -1;

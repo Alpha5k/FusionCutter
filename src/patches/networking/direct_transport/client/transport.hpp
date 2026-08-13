@@ -41,7 +41,7 @@ class ClientTransport final : public GameTransport {
     // Discovers the current host association from native packet activity.
     void on_native_transmit(int physical_primary) noexcept override;
     // Pins one carrier across each nested native transmit group.
-    [[nodiscard]] int begin_transmit_group(int physical_primary) noexcept override;
+    [[nodiscard]] int begin_transmit_group(int physical_primary, int packet_type) noexcept override;
     void end_transmit_group(int physical_primary) noexcept override;
     // Sends a native packet through Direct when the pinned route requires it.
     [[nodiscard]] NativeTransmitResult transmit_native(int physical_primary, int group_primary,

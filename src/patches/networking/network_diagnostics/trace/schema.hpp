@@ -8,7 +8,7 @@
 
 namespace fusioncutter::patches::network_diagnostics::trace {
 
-inline constexpr std::uint32_t kSchemaVersion = 3;
+inline constexpr std::uint32_t kSchemaVersion = 4;
 
 enum class RecordKind : std::uint16_t {
     ClientFrame = 1,
@@ -42,6 +42,7 @@ enum class RecordKind : std::uint16_t {
     ServerSoldierPose = 29,
     NetworkPolicy = 30,
     DirectAssociation = 31,
+    OutputPacing = 32,
 };
 
 [[nodiscard]] constexpr const char* record_kind_name(RecordKind kind) noexcept {
@@ -54,6 +55,7 @@ enum class RecordKind : std::uint16_t {
         "EventDecoding",     "ReliableEventBatch",   "OrdnanceEvent",        "WeaponFire",
         "ControllerState",   "ProjectileBuild",      "ProjectileSimulation", "Damage",
         "ClientSoldierPose", "ServerSoldierPose",    "NetworkPolicy",        "DirectAssociation",
+        "OutputPacing",
     };
     const auto index = std::to_underlying(kind);
     return index < names.size() ? names[index] : names.front();
@@ -97,6 +99,16 @@ enum class DirectRoute : std::uint8_t {
     Negotiating = 2,
     Native = 3,
     Direct = 4,
+};
+
+enum class OutputPacingOutcome : std::uint8_t {
+    Immediate = 1,
+    Held = 2,
+    CapLimited = 3,
+    QueueCollision = 4,
+    LifecycleDiscard = 5,
+    ModeTransition = 6,
+    CapacityExceeded = 7,
 };
 
 #pragma pack(push, 1)
@@ -436,6 +448,16 @@ struct DirectAssociationRecord {
     std::uint64_t direct_ms;
 };
 
+struct OutputPacingRecord {
+    std::int32_t slot;
+    std::uint32_t generation;
+    OutputPacingOutcome outcome;
+    std::uint16_t fragment_count;
+    std::uint32_t bytes;
+    std::uint64_t completion_ns;
+    std::uint64_t release_ns;
+};
+
 #pragma pack(pop)
 
 template <typename Payload>
@@ -470,5 +492,6 @@ static_assert(kValidPayload<OrdnanceEventRecord>);
 static_assert(kValidPayload<ServerPoseBatch>);
 static_assert(kValidPayload<NetworkPolicyRecord>);
 static_assert(kValidPayload<DirectAssociationRecord>);
+static_assert(kValidPayload<OutputPacingRecord>);
 
 } // namespace fusioncutter::patches::network_diagnostics::trace

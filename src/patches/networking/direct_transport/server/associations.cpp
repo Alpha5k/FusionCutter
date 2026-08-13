@@ -1,5 +1,6 @@
 #include "transport.hpp"
 
+#include "output_pacing.hpp"
 #include "../../network_pipeline/pipeline.hpp"
 
 #include "../shared/datagram.hpp"
@@ -38,6 +39,7 @@ void ServerTransport::invalidate_association(std::uint8_t physical_primary, Asso
     }
     auto& association = associations_[physical_primary];
     const auto now = GetTickCount64();
+    discard_output_pacing(physical_primary, association.generation);
     observe_association(physical_primary, network_pipeline::DirectAssociationPhase::Ended, now, reason);
     association.diagnostics.finish("Server", physical_primary, association.generation, association.connection_id,
                                    association.state, reason, now);

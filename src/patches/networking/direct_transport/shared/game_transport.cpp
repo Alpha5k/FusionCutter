@@ -19,8 +19,8 @@ void native_transmit(void* context, int destination) noexcept {
     transport_from(context).on_native_transmit(destination);
 }
 
-int begin_group(void* context, int destination) noexcept {
-    return transport_from(context).begin_transmit_group(destination);
+int begin_group(void* context, int destination, int packet_type) noexcept {
+    return transport_from(context).begin_transmit_group(destination, packet_type);
 }
 
 void end_group(void* context, int destination) noexcept {
