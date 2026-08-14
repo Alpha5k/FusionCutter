@@ -13,6 +13,7 @@ This is the complete lookup for Fusion Cutter's patch-facing framework. Start wi
 | Declare settings or read an environment override | `setting()`, `choice()`, groups, environment helpers | [Settings](#settings), [Environment values](#environment-values) |
 | Bridge callbacks, receive updates, or publish status | `PatchInstanceSlot<T>`, `Updatable`, `StatusContributor` | [Patch classes and lifecycle](#patch-classes-and-lifecycle), [Reporting](#reporting) |
 | Report diagnostics or actionable failures | `logging::*`, `OutcomeReason` | [Reporting](#reporting), [Outcomes](#outcomes-and-failure-reporting) |
+| Publish a high-volume ETL diagnostic channel | `diagnostics::EtlChannel` | [ETL diagnostics](#etl-diagnostics) |
 | Build, test, and verify supported binaries | CMake, CTest, `FusionCutter-Verify.exe` | [Build and verification tools](#build-and-verification-tools) |
 
 The primary include for a patch is:
@@ -108,6 +109,7 @@ Current shared categories from `<FusionCutter/categories.hpp>` are:
 | `categories::Multiplayer` | Multiplayer | `200` |
 | `categories::Networking` | Networking | `250` |
 | `categories::Server` | Server | `300` |
+| `categories::Diagnostics` | Diagnostics | `350` |
 
 `PresentationCategory` has `name` and integer `order` fields.
 
@@ -579,6 +581,28 @@ bool StatusSection::add(std::string_view label, std::string_view value) noexcept
 The return value indicates whether the full input fit. A section accepts at most 12 fields; labels have 48-byte capacity and values 192-byte capacity. Empty labels and excess fields are rejected. Oversized text is truncated safely, and carriage returns/newlines become spaces.
 
 Status collection may read atomics or a small published snapshot. It performs no game/network calls, I/O, waiting, history accumulation, or expensive/unbounded work. Active contributors are polled at most once per second.
+
+### ETL diagnostics
+
+Permanent high-volume diagnostics publish compact records through the shared process trace:
+
+```cpp
+#include <FusionCutter/diagnostics.hpp>
+
+diagnostics::EtlChannel channel;
+
+channel.prepare(target, "ExampleDiagnostics", schema_version, capture_mode);
+channel.start();
+channel.submit(kind, payload, context, flags);
+channel.omit();
+channel.stop();
+```
+
+`prepare()` belongs in `prepare_runtime()`, `start()` in `enable_runtime()`, and `stop()` in `disable_runtime()`. All active channels in a process share one role-specific ETL file. Channel names and schema versions identify their records independently.
+
+`submit()` accepts payloads through `diagnostics::kMaximumEtlPayloadSize` and copies them into a fixed per-thread producer ring. Larger payloads are rejected and counted as dropped. `context` is the channel-defined stable subject or transaction identifier; `kind` and `flags` belong to the channel schema. `omit(count)` reports evidence intentionally skipped by bounded aggregation or overflow handling.
+
+Callbacks that submit records remain bounded and nonblocking: no allocation, formatting, file or ETW calls, locks, compression, waits, or high-cost clock queries. The core writer owns ETW and batching. `health()` returns `TraceHealth`; `filename()` returns the shared trace filename for status output. Diagnostics patches define typed payload helpers and record schemas privately rather than exposing ETW or vendor types to ordinary patches.
 
 ## Outcomes and failure reporting
 

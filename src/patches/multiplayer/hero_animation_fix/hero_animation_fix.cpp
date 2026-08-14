@@ -22,11 +22,45 @@ constexpr int kWeaponSlots = 8;
 
 struct PredictionWindow {
     HeroAnimationFix* patch{};
+    void* weapon{};
     HeroIdentity identity{};
+    bool recording{};
 };
 
-thread_local PredictionWindow gPredictionWindow;
-thread_local void* gAuthorityWeapon{};
+struct AuthorityWindow {
+    HeroAnimationFix* patch{};
+    void* weapon{};
+    int previous_state{};
+    bool recording{};
+};
+
+template <typename Window, std::size_t Capacity> struct WindowStack {
+    [[nodiscard]] bool push(Window window) noexcept {
+        if (size == values.size()) {
+            return false;
+        }
+        values[size++] = window;
+        return true;
+    }
+
+    [[nodiscard]] Window* current() noexcept {
+        return size == 0 ? nullptr : &values[size - 1];
+    }
+
+    void pop() noexcept {
+        if (size != 0) {
+            --size;
+        }
+    }
+
+    std::array<Window, Capacity> values{};
+    std::size_t size{};
+};
+
+thread_local WindowStack<PredictionWindow, 4> gPredictionWindows;
+thread_local WindowStack<AuthorityWindow, 4> gAuthorityWindows;
+thread_local std::size_t gPredictionOverflow{};
+thread_local std::size_t gAuthorityOverflow{};
 
 [[nodiscard]] constexpr bool valid_state(int state) noexcept {
     return state >= 0 && state < 32;
@@ -43,48 +77,64 @@ HeroAnimationFix::HeroAnimationFix(const TargetContext& target) noexcept
       is_update_turn_(image_.read_at_rva<volatile std::uint8_t>(layout_.state.is_update_turn_rva)),
       network_enabled_(image_.read_at_rva<volatile std::uint8_t>(layout_.state.network_enabled_rva)),
       network_client_active_(image_.read_at_rva<volatile std::uint8_t>(layout_.state.network_client_active_rva)),
-      prediction_resume_(image_.address_at_rva(layout_.hooks.prediction_resume_rva)) {}
+      prediction_resume_(image_.address_at_rva(layout_.native.prediction_resume_rva)) {
+    pipeline_callbacks_ = {
+        .context = this,
+        .before_update =
+            [](void* context, void* weapon, float delta) noexcept {
+                return static_cast<HeroAnimationFix*>(context)->begin_update(weapon, delta);
+            },
+        .after_update =
+            [](void* context, void* weapon, float delta, bool native_called, bool result) noexcept {
+                static_cast<HeroAnimationFix*>(context)->finish_update(weapon, delta, native_called, result);
+            },
+        .before_network_state =
+            [](void* context, void* weapon, int state, bool flag) noexcept {
+                return static_cast<HeroAnimationFix*>(context)->begin_network_state(weapon, state, flag);
+            },
+        .after_network_state =
+            [](void* context, void* weapon, int state, bool flag, bool native_called) noexcept {
+                static_cast<HeroAnimationFix*>(context)->finish_network_state(weapon, state, flag, native_called);
+            },
+        .enter_state =
+            [](void* context, void* weapon, int state) noexcept {
+                static_cast<HeroAnimationFix*>(context)->observe_enter_state(weapon, state);
+            },
+        .suppress_animator_state =
+            [](void* context, void* animator, std::uint32_t weapon_state, std::uint32_t active,
+               std::uint32_t primary_animation, std::uint32_t secondary_animation) noexcept {
+                return static_cast<HeroAnimationFix*>(context)->suppress_animator_state(
+                    animator, weapon_state, active, primary_animation, secondary_animation);
+            },
+        .input_queue =
+            [](void* context, MidHookContext& hook) noexcept {
+                static_cast<HeroAnimationFix*>(context)->reconcile_input_queue(hook);
+            },
+        .prediction_transition =
+            [](void* context, MidHookContext& hook) noexcept {
+                static_cast<HeroAnimationFix*>(context)->suppress_authority_replay(hook);
+            },
+    };
+}
 
 void HeroAnimationFix::build_plan(PatchPlan& plan) {
     add_layout_requirements(plan, image_, layout_);
-    // The x86 detours use fastcall bridges while their original handles retain the native thiscall ABI.
-    original_update_ = plan.inline_hook_with_original<UpdateFunction>(
-        "Own hero melee prediction updates", layout_.hooks.update.rva, layout_.hooks.update.pattern(),
-        reinterpret_cast<UpdateFunction>(&HeroAnimationFix::hook_update));
-    original_set_network_state_ = plan.inline_hook_with_original<SetNetworkStateFunction>(
-        "Reconcile authoritative hero melee states", layout_.hooks.set_network_state.rva,
-        layout_.hooks.set_network_state.pattern(),
-        reinterpret_cast<SetNetworkStateFunction>(&HeroAnimationFix::hook_set_network_state));
-    original_enter_state_ = plan.inline_hook_with_original<EnterStateFunction>(
-        "Record predicted hero melee transitions", layout_.hooks.enter_state.rva, layout_.hooks.enter_state.pattern(),
-        reinterpret_cast<EnterStateFunction>(&HeroAnimationFix::hook_enter_state));
-    original_animator_state_ = plan.inline_hook_with_original<AnimatorStateFunction>(
-        "Preserve active local hero animations", layout_.hooks.animator_state.rva,
-        layout_.hooks.animator_state.pattern(),
-        reinterpret_cast<AnimatorStateFunction>(&HeroAnimationFix::hook_animator_state));
-
-    const auto input_queue = input_queue_preimage(image_, layout_);
-    plan.mid_hook("Reconcile remote hero input edges", layout_.hooks.input_queue_update.rva,
-                  BytePattern::exact(input_queue), &HeroAnimationFix::reconcile_input_queue);
-    plan.mid_hook("Suppress repeated authority-first hero transitions", layout_.hooks.prediction_transition.rva,
-                  layout_.hooks.prediction_transition.pattern(), &HeroAnimationFix::suppress_authority_replay);
 }
 
 void HeroAnimationFix::enable_runtime() noexcept {
     clear_tracking();
-    active_.publish(*this);
+    hero_melee_pipeline::publish_policy(pipeline_callbacks_);
 }
 
 void HeroAnimationFix::disable_runtime() noexcept {
-    active_.clear(*this);
+    hero_melee_pipeline::clear_policy(pipeline_callbacks_);
     clear_tracking();
 }
 
 // Leaves one native prediction owner by omitting the duplicate authority/history update pass.
-bool HeroAnimationFix::update_weapon(void* weapon, float delta) noexcept {
-    const auto original = original_update_.get();
-    if (original == nullptr) {
-        return true;
+hero_melee_pipeline::UpdateDecision HeroAnimationFix::begin_update(void* weapon, float) noexcept {
+    if (!gPredictionWindows.push({.patch = this, .weapon = weapon})) {
+        ++gPredictionOverflow;
     }
 
     const auto active_prediction = network_prediction_active();
@@ -92,51 +142,65 @@ bool HeroAnimationFix::update_weapon(void* weapon, float delta) noexcept {
     const auto identity = capture_identity(weapon, ready);
     if (!identity.valid()) {
         clear_weapon(reinterpret_cast<std::uintptr_t>(weapon));
-        return original(weapon, delta);
+        return {};
     }
     if (!ready) {
         clear_identity(identity);
-        return original(weapon, delta);
+        return {};
     }
 
     if (active_prediction && *is_update_turn_ != 0 && *is_local_turn_ == 0) {
-        return true;
+        return {.call_native = false, .result = true};
     }
     if (!active_prediction || *is_local_turn_ == 0) {
-        return original(weapon, delta);
+        return {};
     }
 
-    history_.begin_prediction(identity);
-    const auto previous_window = gPredictionWindow;
-    gPredictionWindow = {this, identity};
-    const auto result = original(weapon, delta);
-    history_.finish_prediction(identity);
-    gPredictionWindow = previous_window;
-    return result;
+    if (gPredictionOverflow == 0) {
+        auto* window = gPredictionWindows.current();
+        window->identity = identity;
+        window->recording = true;
+        history_.begin_prediction(identity);
+    }
+    return {};
+}
+
+void HeroAnimationFix::finish_update(void* weapon, float, bool, bool) noexcept {
+    if (gPredictionOverflow != 0) {
+        --gPredictionOverflow;
+        return;
+    }
+
+    const auto* window = gPredictionWindows.current();
+    if (window == nullptr || window->patch != this || window->weapon != weapon) {
+        return;
+    }
+    if (window->recording) {
+        history_.finish_prediction(window->identity);
+    }
+    gPredictionWindows.pop();
 }
 
 // Applies unknown or corrective authority natively while rejecting only proven historical states.
-void HeroAnimationFix::apply_network_state(void* weapon, int state, bool flag) noexcept {
-    const auto original = original_set_network_state_.get();
-    if (original == nullptr) {
-        return;
+hero_melee_pipeline::NetworkStateDecision HeroAnimationFix::begin_network_state(void* weapon, int state,
+                                                                                bool) noexcept {
+    if (!gAuthorityWindows.push({.patch = this, .weapon = weapon})) {
+        ++gAuthorityOverflow;
     }
+
     if (!network_prediction_active()) {
-        original(weapon, state, flag);
-        return;
+        return {state};
     }
 
     bool ready{};
     const auto identity = capture_identity(weapon, ready);
     if (!identity.valid()) {
         clear_weapon(reinterpret_cast<std::uintptr_t>(weapon));
-        original(weapon, state, flag);
-        return;
+        return {state};
     }
     if (!ready) {
         clear_identity(identity);
-        original(weapon, state, flag);
-        return;
+        return {state};
     }
 
     const auto current_state = read_native_field<int>(weapon, kStateOffset);
@@ -145,27 +209,43 @@ void HeroAnimationFix::apply_network_state(void* weapon, int state, bool flag) n
         presentations_[identity.local_player] = {};
     }
     if (action == AuthorityAction::SuppressHistorical) {
+        return {.state = state, .call_native = false};
+    }
+
+    if (gAuthorityOverflow == 0) {
+        auto* window = gAuthorityWindows.current();
+        window->previous_state = current_state;
+        window->recording = true;
+    }
+    return {state};
+}
+
+void HeroAnimationFix::finish_network_state(void* weapon, int state, bool, bool native_called) noexcept {
+    if (gAuthorityOverflow != 0) {
+        --gAuthorityOverflow;
         return;
     }
 
-    auto* previous_authority = gAuthorityWeapon;
-    gAuthorityWeapon = weapon;
-    original(weapon, state, flag);
-    gAuthorityWeapon = previous_authority;
-
-    if (current_state != state && valid_state(state) && read_native_field<int>(weapon, kStateOffset) == state) {
+    const auto* window = gAuthorityWindows.current();
+    if (window == nullptr || window->patch != this || window->weapon != weapon) {
+        return;
+    }
+    if (native_called && window->recording && window->previous_state != state && valid_state(state) &&
+        read_native_field<int>(weapon, kStateOffset) == state) {
+        bool ready{};
+        const auto identity = capture_identity(weapon, ready);
         history_.record_authority_transition(identity, state);
     }
+    gAuthorityWindows.pop();
 }
 
 // Records native prediction transitions without replacing the game's state machine.
-void HeroAnimationFix::enter_state(void* weapon, int state) noexcept {
-    if (gAuthorityWeapon != weapon && gPredictionWindow.patch == this &&
-        gPredictionWindow.identity.weapon == reinterpret_cast<std::uintptr_t>(weapon)) {
+void HeroAnimationFix::observe_enter_state(void* weapon, int state) noexcept {
+    const auto* authority = gAuthorityWindows.current();
+    const auto* prediction = gPredictionWindows.current();
+    if ((authority == nullptr || authority->weapon != weapon) && prediction != nullptr && prediction->patch == this &&
+        prediction->recording && prediction->weapon == weapon) {
         observe_prediction_transition(weapon, state);
-    }
-    if (const auto original = original_enter_state_.get(); original != nullptr) {
-        original(weapon, state);
     }
 }
 
@@ -269,7 +349,12 @@ void HeroAnimationFix::observe_prediction_transition(void* weapon, int state) no
     if (!valid_state(state)) {
         return;
     }
-    const auto& identity = gPredictionWindow.identity;
+    const auto* window = gPredictionWindows.current();
+    if (window == nullptr || window->patch != this ||
+        window->identity.weapon != reinterpret_cast<std::uintptr_t>(weapon)) {
+        return;
+    }
+    const auto& identity = window->identity;
     const auto base_state = read_native_field<int>(weapon, kStateOffset);
     if (!history_.observe_prediction(identity, base_state, state, *prediction_turn_)) {
         return;
@@ -302,70 +387,31 @@ void HeroAnimationFix::clear_tracking() noexcept {
     prediction_was_active_ = false;
 }
 
-bool __fastcall HeroAnimationFix::hook_update(void* weapon, void*, float delta) noexcept {
-    if (auto* patch = active_.read(); patch != nullptr) {
-        return patch->update_weapon(weapon, delta);
-    }
-    if (const auto original = original_update_.get(); original != nullptr) {
-        return original(weapon, delta);
-    }
-    return true;
-}
-
-void __fastcall HeroAnimationFix::hook_set_network_state(void* weapon, void*, int state, bool flag) noexcept {
-    if (auto* patch = active_.read(); patch != nullptr) {
-        patch->apply_network_state(weapon, state, flag);
-    } else if (const auto original = original_set_network_state_.get(); original != nullptr) {
-        original(weapon, state, flag);
-    }
-}
-
-void __fastcall HeroAnimationFix::hook_enter_state(void* weapon, void*, int state) noexcept {
-    if (auto* patch = active_.read(); patch != nullptr) {
-        patch->enter_state(weapon, state);
-    } else if (const auto original = original_enter_state_.get(); original != nullptr) {
-        original(weapon, state);
-    }
-}
-
-void __fastcall HeroAnimationFix::hook_animator_state(void* animator, void*, std::uint32_t weapon_state,
-                                                      std::uint32_t active, std::uint32_t primary_animation,
-                                                      std::uint32_t secondary_animation, std::uint32_t blend) noexcept {
-    auto* patch = active_.read();
-    const auto suppress = patch != nullptr && patch->suppress_animator_state(animator, weapon_state, active,
-                                                                             primary_animation, secondary_animation);
-    if (!suppress) {
-        if (const auto original = original_animator_state_.get(); original != nullptr) {
-            original(animator, weapon_state, active, primary_animation, secondary_animation, blend);
-        }
-    }
-}
-
 void HeroAnimationFix::reconcile_input_queue(MidHookContext& context) noexcept {
-    auto* patch = active_.read();
-    if (patch == nullptr || gPredictionWindow.patch != patch || context.ecx < kInputQueueOffset) {
+    const auto* window = gPredictionWindows.current();
+    if (window == nullptr || window->patch != this || context.ecx < kInputQueueOffset) {
         return;
     }
 
     const auto weapon = context.ecx - kInputQueueOffset;
-    if (gPredictionWindow.identity.weapon != weapon || !gPredictionWindow.identity.is_remote()) {
+    if (window->identity.weapon != weapon || !window->identity.is_remote()) {
         return;
     }
     const auto buttons = read_native_field<std::uint8_t>(reinterpret_cast<const void*>(context.esp + sizeof(void*)));
     auto* queue = reinterpret_cast<void*>(context.ecx);
     auto down = read_native_field<std::uint8_t>(queue, kInputDownOffset);
-    if (patch->history_.reconcile_input(gPredictionWindow.identity, buttons, down)) {
+    if (history_.reconcile_input(window->identity, buttons, down)) {
         write_native_field(queue, kInputDownOffset, down);
     }
 }
 
 void HeroAnimationFix::suppress_authority_replay(MidHookContext& context) noexcept {
-    auto* patch = active_.read();
-    if (patch == nullptr || gPredictionWindow.patch != patch || gPredictionWindow.identity.weapon != context.ebx) {
+    const auto* window = gPredictionWindows.current();
+    if (window == nullptr || window->patch != this || window->identity.weapon != context.ebx) {
         return;
     }
-    if (patch->history_.resolve_replay(gPredictionWindow.identity, static_cast<int>(context.esi))) {
-        context.eip = patch->prediction_resume_;
+    if (history_.resolve_replay(window->identity, static_cast<int>(context.esi))) {
+        context.eip = prediction_resume_;
     }
 }
 

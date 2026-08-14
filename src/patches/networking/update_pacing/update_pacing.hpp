@@ -4,7 +4,7 @@
 #include "../direct_transport/shared/native_packet.hpp"
 #include "../direct_transport/shared/protocol.hpp"
 #include "../direct_transport/server/output_pacing.hpp"
-#include "../network_pipeline/pipeline.hpp"
+#include "../../pipelines/network/pipeline.hpp"
 
 #include <FusionCutter/patch.hpp>
 

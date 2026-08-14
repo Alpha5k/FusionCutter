@@ -1,6 +1,5 @@
 add_subdirectory(networking/direct_transport)
-add_subdirectory(networking/network_diagnostics)
-add_subdirectory(networking/network_pipeline)
+add_subdirectory(pipelines/network)
 add_subdirectory(networking/update_recovery)
 add_subdirectory(networking/update_pacing)
 add_subdirectory(multiplayer/spectator_camera)

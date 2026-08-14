@@ -2,6 +2,7 @@
 
 #include "catalog/generated_catalog.hpp"
 #include "reporting/crash_reporter.hpp"
+#include "reporting/diagnostics.hpp"
 #include "reporting/session.hpp"
 #include "startup.hpp"
 #include "targets/process_images.hpp"
@@ -212,6 +213,7 @@ probe_late_image(fusioncutter::TargetLayout layout, fusioncutter::HostRole role,
     }
 
     reporting.set_level(configuration->log_level());
+    fusioncutter::diagnostics_detail::configure(configuration->diagnostics_maximum_file_size_mb());
     for (const auto& diagnostic : configuration->diagnostics()) {
         fusioncutter::logging::warning(
             "Core", "Configuration line " + std::to_string(diagnostic.line) + ": " + diagnostic.message,

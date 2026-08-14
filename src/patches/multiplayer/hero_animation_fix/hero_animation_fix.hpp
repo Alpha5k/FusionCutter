@@ -2,6 +2,7 @@
 
 #include "history.hpp"
 #include "layout.hpp"
+#include "../../pipelines/hero_melee/pipeline.hpp"
 
 #include <FusionCutter/patch.hpp>
 
@@ -10,7 +11,7 @@
 
 namespace fusioncutter::patches::hero_animation_fix {
 
-// Owns hero melee prediction history and the native boundaries that reconcile delayed authority.
+// Owns hero melee prediction history and supplies reconciliation policy to the shared pipeline.
 class HeroAnimationFix final : public RuntimePatch {
   public:
     explicit HeroAnimationFix(const TargetContext& target) noexcept;
@@ -20,11 +21,6 @@ class HeroAnimationFix final : public RuntimePatch {
     void disable_runtime() noexcept override;
 
   private:
-    using UpdateFunction = bool(__thiscall*)(void*, float);
-    using SetNetworkStateFunction = void(__thiscall*)(void*, int, bool);
-    using EnterStateFunction = void(__thiscall*)(void*, int);
-    using AnimatorStateFunction = void(__thiscall*)(void*, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t,
-                                                    std::uint32_t);
     using GetJoystickIndex = int(__cdecl*)(int);
 
     struct PresentationBinding {
@@ -32,12 +28,17 @@ class HeroAnimationFix final : public RuntimePatch {
         void* animator{};
     };
 
-    [[nodiscard]] bool update_weapon(void* weapon, float delta) noexcept;
-    void apply_network_state(void* weapon, int state, bool flag) noexcept;
-    void enter_state(void* weapon, int state) noexcept;
+    [[nodiscard]] hero_melee_pipeline::UpdateDecision begin_update(void* weapon, float delta) noexcept;
+    void finish_update(void* weapon, float delta, bool native_called, bool result) noexcept;
+    [[nodiscard]] hero_melee_pipeline::NetworkStateDecision begin_network_state(void* weapon, int state,
+                                                                                bool flag) noexcept;
+    void finish_network_state(void* weapon, int state, bool flag, bool native_called) noexcept;
+    void observe_enter_state(void* weapon, int state) noexcept;
     [[nodiscard]] bool suppress_animator_state(void* animator, std::uint32_t weapon_state, std::uint32_t active,
                                                std::uint32_t primary_animation,
                                                std::uint32_t secondary_animation) noexcept;
+    void reconcile_input_queue(MidHookContext& context) noexcept;
+    void suppress_authority_replay(MidHookContext& context) noexcept;
 
     // Captures the exact selected, alive melee identity required at every reconciliation boundary.
     [[nodiscard]] HeroIdentity capture_identity(void* weapon, bool& ready) const noexcept;
@@ -47,23 +48,6 @@ class HeroAnimationFix final : public RuntimePatch {
     void clear_identity(const HeroIdentity& identity) noexcept;
     void clear_weapon(std::uintptr_t weapon) noexcept;
     void clear_tracking() noexcept;
-
-    static bool __fastcall hook_update(void* weapon, void*, float delta) noexcept;
-    static void __fastcall hook_set_network_state(void* weapon, void*, int state, bool flag) noexcept;
-    static void __fastcall hook_enter_state(void* weapon, void*, int state) noexcept;
-    static void __fastcall hook_animator_state(void* animator, void*, std::uint32_t weapon_state, std::uint32_t active,
-                                               std::uint32_t primary_animation, std::uint32_t secondary_animation,
-                                               std::uint32_t blend) noexcept;
-    // Reconciles omitted remote button levels without detouring InputQueue::Update's private XMM2 ABI.
-    static void reconcile_input_queue(MidHookContext& context) noexcept;
-    // Skips only the exact prediction ExitState/EnterState pair already performed by authority.
-    static void suppress_authority_replay(MidHookContext& context) noexcept;
-
-    inline static PatchInstanceSlot<HeroAnimationFix> active_;
-    inline static OriginalFunction<UpdateFunction> original_update_;
-    inline static OriginalFunction<SetNetworkStateFunction> original_set_network_state_;
-    inline static OriginalFunction<EnterStateFunction> original_enter_state_;
-    inline static OriginalFunction<AnimatorStateFunction> original_animator_state_;
 
     const HeroAnimationLayout& layout_;
     ImageContext image_;
@@ -77,6 +61,7 @@ class HeroAnimationFix final : public RuntimePatch {
     std::uintptr_t prediction_resume_{};
     HeroHistory history_;
     std::array<PresentationBinding, kLocalPlayers> presentations_{};
+    hero_melee_pipeline::PolicyCallbacks pipeline_callbacks_;
     bool prediction_was_active_{};
 };
 

@@ -1,11 +1,15 @@
 add_library(fusioncutter_reporting STATIC
+    "${FC_SOURCE_ROOT}/include/FusionCutter/diagnostics.hpp"
     "${FC_SOURCE_ROOT}/include/FusionCutter/reporting.hpp"
     bounded_writer.hpp
     crash_reporter.cpp
     crash_reporter.hpp
+    diagnostics.cpp
+    diagnostics.hpp
     log_level.hpp
     session.cpp
     session.hpp
+    spsc_ring.hpp
     status.cpp
     status.hpp
 )

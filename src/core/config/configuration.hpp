@@ -59,6 +59,10 @@ class Configuration {
         return log_level_;
     }
 
+    [[nodiscard]] std::uint32_t diagnostics_maximum_file_size_mb() const noexcept {
+        return diagnostics_maximum_file_size_mb_;
+    }
+
     // Call only for a patch selected by the catalog. Disabled patches intentionally skip typed setting validation.
     [[nodiscard]] std::expected<ResolvedSettings, OutcomeReason> resolve_settings(PatchId patch_id) const;
 
@@ -88,10 +92,13 @@ class Configuration {
     std::vector<PatchToggle> patch_toggles_;
     std::vector<ConfigurationDiagnostic> diagnostics_;
     std::optional<StoredValue> logging_level_;
+    std::optional<StoredValue> diagnostics_maximum_file_size_;
     std::size_t omitted_diagnostics_{};
     bool file_created_{};
     std::optional<OutcomeReason> output_error_;
     LogLevel log_level_{reporting_detail::default_log_level()};
+    std::uint32_t diagnostics_maximum_file_size_mb_{512};
+    bool has_diagnostics_{};
 };
 
 [[nodiscard]] std::expected<Configuration, OutcomeReason> load_configuration(const std::filesystem::path& path,

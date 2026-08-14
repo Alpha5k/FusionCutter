@@ -1,7 +1,7 @@
 #include "update_scheduling.hpp"
 
 #include "layout.hpp"
-#include "../network_diagnostics/observations.hpp"
+#include "../../diagnostics/network_diagnostics/observations.hpp"
 
 namespace fusioncutter::patches::update_scheduling {
 namespace {

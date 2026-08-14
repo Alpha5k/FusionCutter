@@ -1,4 +1,5 @@
 #include "bounded_writer.hpp"
+#include "spsc_ring.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -124,6 +125,26 @@ struct FileIdentity {
 }
 
 } // namespace
+
+TEST_CASE("Diagnostics records survive bounded ring wrap", "[core][reporting]") {
+    fusioncutter::diagnostics_detail::SpscRing<std::uint32_t, 16> records;
+
+    for (std::uint32_t value = 1; value <= 15; ++value) {
+        CHECK(records.push(value));
+    }
+    CHECK_FALSE(records.push(16));
+
+    std::uint32_t record{};
+    REQUIRE(records.pop(record));
+    CHECK(record == 1);
+    CHECK(records.push(16));
+
+    for (std::uint32_t expected = 2; expected <= 16; ++expected) {
+        REQUIRE(records.pop(record));
+        CHECK(record == expected);
+    }
+    CHECK_FALSE(records.pop(record));
+}
 
 TEST_CASE("Bounded crash text records truncation without overflowing", "[core][reporting]") {
     constexpr std::string_view kMarker = "[truncated]";

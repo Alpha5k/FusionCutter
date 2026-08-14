@@ -1,7 +1,7 @@
 #include "update_recovery.hpp"
 
 #include "ordering.hpp"
-#include "../network_diagnostics/observations.hpp"
+#include "../../diagnostics/network_diagnostics/observations.hpp"
 
 #include <cstddef>
 

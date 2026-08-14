@@ -1,7 +1,7 @@
 #pragma once
 
 #include "protocol.hpp"
-#include "../../network_pipeline/pipeline.hpp"
+#include "../../../pipelines/network/pipeline.hpp"
 
 #include <cstdint>
 #include <limits>

@@ -73,9 +73,9 @@ std::uint64_t AspyrRcon::handle_command(int output, const wchar_t* command, std:
     }
 
     const auto input = bounded_string_view(command, aspyr::layout::kCommandCapacity);
+    const auto authenticated = output == -1 && sender == 0 && message_type == 0 && *details == 1 && *logged_in == 1;
     // Claim only authenticated TCP RCON /lua commands; every other native command passes through.
-    const auto handles_lua = output == -1 && sender == 0 && message_type == 0 && *details == 1 && *logged_in == 1 &&
-                             input.starts_with(kLuaPrefix);
+    const auto handles_lua = authenticated && input.starts_with(kLuaPrefix);
     if (!handles_lua) {
         return pass_through();
     }

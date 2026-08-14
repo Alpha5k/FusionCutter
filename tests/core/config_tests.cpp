@@ -320,7 +320,7 @@ TEST_CASE("Configuration generation round trips only applicable configurable pat
 
     fusioncutter::catalog::Catalog catalog({
         fusioncutter::catalog::catalog_entry(
-            "AimAssist", patch_definition(true, true, test_settings_definition(), configured_variants),
+            "AimAssist", patch_definition(true, true, test_settings_definition(), configured_variants, "Diagnostics"),
             {true, false, true, false}),
         fusioncutter::catalog::catalog_entry("InternalSupport", patch_definition(true, false, {}, internal_variants),
                                              {true, false, true, false}),
@@ -346,6 +346,7 @@ TEST_CASE("Configuration generation round trips only applicable configurable pat
 
     const auto generated_text = read_file(path);
     CHECK(generated_text.starts_with("[Logging]\r\nLevel="));
+    CHECK(generated_text.contains("[Diagnostics]\r\nMaximumFileSizeMB=512\r\n"));
     CHECK(generated_text.contains("AimAssist=1\r\n"));
     CHECK(generated_text.contains("LateFeature=0\r\n"));
     CHECK(generated_text.contains("[AimAssist]\r\n"));
@@ -377,10 +378,13 @@ TEST_CASE("Existing configuration applies the last recognized value without rewr
         test_variant<ConfiguredPatch, TestSettings>(fusioncutter::TargetLayout::SteamRetail,
                                                     fusioncutter::HostRole::Client, fusioncutter::TargetImage::Game),
     };
-    auto definition = patch_definition(true, true, test_settings_definition(), variants);
+    auto definition = patch_definition(true, true, test_settings_definition(), variants, "Diagnostics");
     const std::array patches{fusioncutter::config::ApplicablePatch{"AimAssist", &definition, &definition.settings}};
     constexpr std::string_view content = "[Logging]\r\n"
                                          "Level=debug\r\n"
+                                         "\r\n"
+                                         "[Diagnostics]\r\n"
+                                         "MaximumFileSizeMB=256\r\n"
                                          "\r\n"
                                          "[Patches]\r\n"
                                          "AimAssist=off\r\n"
@@ -407,6 +411,7 @@ TEST_CASE("Existing configuration applies the last recognized value without rewr
     CHECK(read_file(path) == std::string(content));
     CHECK(loaded->diagnostics().size() == 4);
     CHECK(loaded->log_level() == fusioncutter::LogLevel::Debug);
+    CHECK(loaded->diagnostics_maximum_file_size_mb() == 256);
 
     const auto* toggle = find_toggle(*loaded, "AimAssist");
     REQUIRE(toggle != nullptr);

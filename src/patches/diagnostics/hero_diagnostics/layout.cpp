@@ -1,0 +1,106 @@
+#include "layout.hpp"
+
+namespace fusioncutter::patches::hero_diagnostics {
+namespace {
+
+constexpr auto kRead = byte_array<0x55, 0x8B, 0xEC, 0x51, 0x56, 0x8B, 0x75, 0x08, 0x57, 0x56, 0x8B, 0xF9>();
+constexpr auto kExitState =
+    byte_array<0x56, 0x8B, 0xF1, 0x8B, 0x86, 0xB0, 0x00, 0x00, 0x00, 0x83, 0xF8, 0x05, 0x77, 0x46, 0xFF, 0x24>();
+constexpr auto kActionState =
+    byte_array<0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8, 0xF3, 0x0F, 0x10, 0x1D, 0x00, 0x00, 0x00, 0x00, 0x83, 0xEC>();
+constexpr auto kActionStateMask =
+    byte_array<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF>();
+constexpr auto kSetupPose =
+    byte_array<0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8, 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00, 0x6A, 0xFF, 0x68, 0x6B>();
+constexpr auto kSetupPoseMask =
+    byte_array<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00>();
+constexpr auto kOverrideControls =
+    byte_array<0x55, 0x8B, 0xEC, 0x51, 0x53, 0x56, 0x8B, 0xF1, 0x57, 0x8B, 0x56, 0x6C, 0x8B, 0x82, 0x80, 0x00>();
+constexpr auto kOverrideVelocity =
+    byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x20, 0x32, 0xD2, 0x0F, 0x57, 0xDB, 0x56, 0x8B, 0xF1, 0x57, 0x6B>();
+constexpr auto kSoundPlay = byte_array<0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8, 0x83, 0xEC, 0x28, 0x56, 0x57, 0x8B, 0xF1>();
+constexpr auto kPlayerMoveParsed = byte_array<0xE9, 0xDD, 0xFE, 0xFF, 0xFF>();
+constexpr auto kDeflect =
+    byte_array<0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF0, 0x81, 0xEC, 0xE8, 0x00, 0x00, 0x00, 0x56, 0x57, 0x8B, 0xF9>();
+constexpr auto kUpdate =
+    byte_array<0x55, 0x8B, 0xEC, 0xF3, 0x0F, 0x10, 0x45, 0x08, 0x83, 0xEC, 0x48, 0x53, 0x8B, 0xD9, 0x8B, 0x4B>();
+constexpr auto kEnterState =
+    byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x30, 0x8B, 0x55, 0x08, 0x0F, 0x57, 0xC9, 0x53, 0x56, 0x57, 0x8B>();
+constexpr auto kWrite = byte_array<0x55, 0x8B, 0xEC, 0x56, 0x57, 0x8B, 0x00, 0x00, 0x8B, 0xF1, 0x57, 0xE8>();
+constexpr auto kWriteMask = byte_array<0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF>();
+
+constexpr ClientLayout kSteamClient{
+    .read = {.rva = 0x001E8B20, .expected = kRead},
+    .exit_state = {.rva = 0x0028BEF0, .expected = kExitState},
+    .action_state = {.rva = 0x0023ED60, .expected = kActionState, .mask = kActionStateMask},
+    .setup_pose = {.rva = 0x0023FAA0, .expected = kSetupPose, .mask = kSetupPoseMask},
+    .override_controls = {.rva = 0x00288700, .expected = kOverrideControls},
+    .override_velocity = {.rva = 0x00288C30, .expected = kOverrideVelocity},
+    .sound_play = {.rva = 0x00138010, .expected = kSoundPlay},
+    .player_move_parsed = {.rva = 0x001D2BA4, .expected = kPlayerMoveParsed},
+    .deflect = {.rva = 0x0028A550, .expected = kDeflect},
+    .host_turn_rva = 0x01BA8798,
+    .client_turn_rva = 0x01A64BA4,
+    .update_turn_rva = 0x01BA65B0,
+    .predict_turn_rva = 0x01BA87B4,
+    .acknowledged_turn_rva = 0x01BA6594,
+    .is_local_turn_rva = 0x01A62F10,
+    .is_update_turn_rva = 0x01A64A2C,
+    .rollback_rva = 0x01A62F11,
+    .network_enabled_rva = 0x01A62EA9,
+    .network_client_active_rva = 0x01A62EAB,
+    .outer_delta_rva = 0x01A56058,
+    .get_joystick_index_rva = 0x001B73C0,
+    .remote_moves_rva = 0x01AD6960,
+    .destination_rva = 0x01BA8778,
+};
+
+constexpr ClientLayout kGogClient{
+    .read = {.rva = 0x001E9BC0, .expected = kRead},
+    .exit_state = {.rva = 0x0028CF80, .expected = kExitState},
+    .action_state = {.rva = 0x0023FE00, .expected = kActionState, .mask = kActionStateMask},
+    .setup_pose = {.rva = 0x00240B40, .expected = kSetupPose, .mask = kSetupPoseMask},
+    .override_controls = {.rva = 0x00289780, .expected = kOverrideControls},
+    .override_velocity = {.rva = 0x00289CB0, .expected = kOverrideVelocity},
+    .sound_play = {.rva = 0x00138D80, .expected = kSoundPlay},
+    .player_move_parsed = {.rva = 0x001D3B24, .expected = kPlayerMoveParsed},
+    .deflect = {.rva = 0x0028B5E0, .expected = kDeflect},
+    .host_turn_rva = 0x01BA9C4C,
+    .client_turn_rva = 0x01A66054,
+    .update_turn_rva = 0x01BA7A64,
+    .predict_turn_rva = 0x01BA9C68,
+    .acknowledged_turn_rva = 0x01BA7A48,
+    .is_local_turn_rva = 0x01A643C0,
+    .is_update_turn_rva = 0x01A65EDC,
+    .rollback_rva = 0x01A643C1,
+    .network_enabled_rva = 0x01A64359,
+    .network_client_active_rva = 0x01A6435B,
+    .outer_delta_rva = 0x01A574F0,
+    .get_joystick_index_rva = 0x001B8370,
+    .remote_moves_rva = 0x01AD7E18,
+    .destination_rva = 0x01BA9C2C,
+};
+
+constexpr ServerLayout kGogServer{
+    .update = {.rva = 0x0028A320, .expected = kUpdate},
+    .enter_state = {.rva = 0x0028CCC0, .expected = kEnterState},
+    .exit_state = {.rva = 0x0028CF80, .expected = kExitState},
+    .override_velocity = {.rva = 0x00289CB0, .expected = kOverrideVelocity},
+    .write = {.rva = 0x001E9B00, .expected = kWrite, .mask = kWriteMask},
+    .deflect = {.rva = 0x0028B5E0, .expected = kDeflect},
+    .host_turn_rva = 0x01BA9C4C,
+    .destination_rva = 0x01BA9C2C,
+    .move_history_rva = 0x01AD9EB0,
+};
+
+} // namespace
+
+const ClientLayout& client_layout_for(TargetLayout target) noexcept {
+    return target == TargetLayout::SteamRetail ? kSteamClient : kGogClient;
+}
+
+const ServerLayout& server_layout() noexcept {
+    return kGogServer;
+}
+
+} // namespace fusioncutter::patches::hero_diagnostics

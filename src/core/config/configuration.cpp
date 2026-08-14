@@ -26,6 +26,7 @@ constexpr std::size_t kMaximumGeneratedLine = INI_MAX_LINE - 3;
 constexpr std::size_t kMaximumSectionName = 49;
 constexpr std::size_t kMaximumDiagnostics = 32;
 constexpr std::size_t kMaximumDisplayedValue = 160;
+constexpr std::uint32_t kMaximumDiagnosticsFileSizeMb = 65'535;
 constexpr std::wstring_view kClientConfigurationFilename = L"FusionCutter.ini";
 constexpr std::wstring_view kServerConfigurationFilename = L"FusionCutter-Server.ini";
 const int kModuleAnchor{};
@@ -142,7 +143,7 @@ read_existing_file(const std::filesystem::path& path) {
         PatchId patch_id;
     };
 
-    std::vector<SectionOwner> sections{{"Patches", {}}};
+    std::vector<SectionOwner> sections{{"Logging", {}}, {"Diagnostics", {}}, {"Patches", {}}};
     for (std::size_t index = 0; index < patches.size(); ++index) {
         const auto& patch = patches[index];
         if (patch.definition == nullptr || patch.settings == nullptr || !valid_ini_key(patch.id)) {
@@ -232,6 +233,12 @@ void append_comment(std::string& output, std::string_view comment) {
 
     std::string output = "[Logging]\r\nLevel=";
     output += reporting_detail::default_log_level() == LogLevel::Debug ? "Debug" : "Error";
+    const auto has_diagnostics = std::ranges::any_of(sorted, [](const auto& patch) {
+        return patch.definition->category.name == "Diagnostics";
+    });
+    if (has_diagnostics) {
+        output += "\r\n\r\n[Diagnostics]\r\nMaximumFileSizeMB=512";
+    }
     output += "\r\n\r\n[Patches]\r\n";
     std::string_view previous_category;
     for (const auto& patch : sorted) {
@@ -401,6 +408,17 @@ class ConfigurationParser {
                                                  "': expected Off, Error, Warning, Info, or Debug");
             }
         }
+        if (configuration.diagnostics_maximum_file_size_.has_value()) {
+            const auto& stored = *configuration.diagnostics_maximum_file_size_;
+            const auto parsed = settings_detail::parse_value<std::uint32_t>(stored.value);
+            if (parsed.has_value() && *parsed >= 1 && *parsed <= kMaximumDiagnosticsFileSizeMb) {
+                configuration.diagnostics_maximum_file_size_mb_ = *parsed;
+            } else {
+                configuration.add_diagnostic(
+                    stored.line, "line " + std::to_string(stored.line) + " [Diagnostics].MaximumFileSizeMB='" +
+                                     displayed_value(stored.value) + "': expected an integer from 1 through 65535");
+            }
+        }
         return {};
     }
 
@@ -470,6 +488,7 @@ class ConfigurationParser {
 
         if (key_text == nullptr) {
             if (!ascii_iequals(section, "Logging") && !ascii_iequals(section, "Patches") &&
+                !(configuration.has_diagnostics_ && ascii_iequals(section, "Diagnostics")) &&
                 !find_section(configuration, section).has_value()) {
                 report_unknown_section(context, section, line_number);
             }
@@ -483,6 +502,15 @@ class ConfigurationParser {
                 store_value(configuration, configuration.logging_level_, section, key, value, line_number);
             } else {
                 configuration.add_diagnostic(line_number, "unknown setting [Logging]." + std::string(key));
+            }
+            return 1;
+        }
+        if (configuration.has_diagnostics_ && ascii_iequals(section, "Diagnostics")) {
+            if (ascii_iequals(key, "MaximumFileSizeMB")) {
+                store_value(configuration, configuration.diagnostics_maximum_file_size_, section, key, value,
+                            line_number);
+            } else {
+                configuration.add_diagnostic(line_number, "unknown setting [Diagnostics]." + std::string(key));
             }
             return 1;
         }
@@ -573,6 +601,7 @@ std::expected<Configuration, OutcomeReason> load_configuration(const std::filesy
     configuration.patch_values_.reserve(patches.size());
     configuration.patch_toggles_.reserve(patches.size());
     for (const auto& patch : patches) {
+        configuration.has_diagnostics_ |= patch.definition->category.name == "Diagnostics";
         configuration.patch_values_.push_back(
             {patch, std::nullopt,
              std::vector<std::optional<Configuration::StoredValue>>(patch.settings->metadata().size())});

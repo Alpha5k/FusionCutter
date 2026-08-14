@@ -1,6 +1,6 @@
 #include "transport.hpp"
 
-#include "../../network_pipeline/pipeline.hpp"
+#include "../../../pipelines/network/pipeline.hpp"
 
 #include "../shared/datagram.hpp"
 

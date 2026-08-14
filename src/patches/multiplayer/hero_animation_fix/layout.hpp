@@ -7,16 +7,9 @@
 
 namespace fusioncutter::patches::hero_animation_fix {
 
-// Identifies the native melee, animator, and private input boundaries owned by the patch.
-struct HeroAnimationHooks {
-    NativeSite<16> update;
-    NativeSite<16> set_network_state;
-    NativeSite<16> enter_state;
-    NativeSite<16> animator_state;
-    NativeSite<16> input_queue_update;
-    NativeSite<16> prediction_transition;
+// Identifies the native proof sites needed only by the reconciliation policy.
+struct HeroAnimationNativeRequirements {
     NativeSite<32> input_queue_call;
-    std::uint32_t input_queue_constant_rva;
     std::uint32_t prediction_resume_rva;
 };
 
@@ -40,14 +33,11 @@ struct HeroAnimationState {
 
 struct HeroAnimationLayout {
     NativeSite<13> joystick_lookup;
-    HeroAnimationHooks hooks;
+    HeroAnimationNativeRequirements native;
     HeroAnimationState state;
 };
 
 [[nodiscard]] const HeroAnimationLayout& layout_for(TargetLayout target) noexcept;
-// Resolves the one relocated constant referenced by InputQueue::Update's prologue.
-[[nodiscard]] std::array<std::byte, 16> input_queue_preimage(const ImageContext& image,
-                                                             const HeroAnimationLayout& layout) noexcept;
 // Proves the native global operands and private input call shape used outside installed hooks.
 void add_layout_requirements(PatchPlan& plan, const ImageContext& image, const HeroAnimationLayout& layout);
 

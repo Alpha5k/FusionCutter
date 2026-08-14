@@ -1,7 +1,7 @@
 #include "transport.hpp"
 
 #include "output_pacing.hpp"
-#include "../../network_pipeline/pipeline.hpp"
+#include "../../../pipelines/network/pipeline.hpp"
 
 #include "../shared/datagram.hpp"
 

@@ -1,10 +1,14 @@
 #include "patch.hpp"
 
-#include <FusionCutter/categories.hpp>
 #include "hero_animation_fix.hpp"
 
+#include <FusionCutter/categories.hpp>
+
+#include <array>
 namespace fusioncutter::patches::hero_animation_fix {
 namespace {
+
+constexpr std::array<PatchRelationship, 1> kDependsOn{"HeroMeleePipeline"};
 
 const PatchVariants kVariants{
     make_patch_variant<HeroAnimationFix, TargetLayout::SteamRetail, HostRole::Client>(TargetImage::Game),
@@ -21,6 +25,7 @@ PatchDefinition definition() {
         .category = categories::Multiplayer,
         .description =
             "Prevent multiplayer hero melee animations from advancing twice or restarting after delayed updates.",
+        .depends_on = kDependsOn,
         .variants = kVariants,
     };
 }
