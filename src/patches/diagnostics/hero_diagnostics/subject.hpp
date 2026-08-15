@@ -1,5 +1,7 @@
 #pragma once
 
+#include "schema.hpp"
+
 #include <FusionCutter/patching.hpp>
 
 #include <array>
@@ -20,8 +22,10 @@ struct HeroSubject {
     bool announced{};
     std::array<std::uint32_t, 6> last_move{};
     std::array<std::uint32_t, 6> last_consumed_move{};
+    trace::LocomotionState last_locomotion{};
     bool move_seen{};
     bool consumed_move_seen{};
+    bool locomotion_seen{};
 };
 
 // Binds only human melee weapons observed at verified native melee boundaries.

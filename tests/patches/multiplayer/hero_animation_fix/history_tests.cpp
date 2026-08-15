@@ -8,75 +8,75 @@ namespace hero_animation = fusioncutter::patches::hero_animation_fix;
 
 namespace {
 
-[[nodiscard]] hero_animation::HeroIdentity local_identity(std::uintptr_t combo = 3) noexcept {
-    return {.weapon = 1, .owner = 2, .combo = combo, .player_handle = 4, .local_player = 0};
+[[nodiscard]] hero_animation::HeroIdentity local_identity() noexcept {
+    return {.weapon = 1, .owner = 2, .combo = 3, .player_handle = 4, .local_player = 0};
 }
 
-[[nodiscard]] hero_animation::HeroIdentity remote_identity(std::uintptr_t combo = 13) noexcept {
-    return {.weapon = 11, .owner = 12, .combo = combo, .player_handle = 14, .local_player = 0xFF};
+[[nodiscard]] hero_animation::HeroIdentity remote_identity() noexcept {
+    return {.weapon = 11, .owner = 12, .combo = 13, .player_handle = 14, .local_player = 0xFF};
 }
 
 } // namespace
 
-TEST_CASE("Local hero history rejects acknowledged replay without delaying corrections", "[patches][hero_animation]") {
-    hero_animation::HeroHistory history;
+TEST_CASE("Local hero history follows the acknowledged prediction frontier", "[patches][hero_animation]") {
+    hero_animation::LocalHistory history;
     const auto identity = local_identity();
 
-    REQUIRE(history.observe_prediction(identity, 0, 7, 100));
-    REQUIRE(history.observe_prediction(identity, 7, 8, 101));
-    CHECK(history.classify_authority(identity, 8, 7, 99) == hero_animation::AuthorityAction::SuppressHistorical);
-    CHECK(history.classify_authority(identity, 8, 0, 100) == hero_animation::AuthorityAction::SuppressHistorical);
-    CHECK(history.should_suppress_local_presentation(identity, 8, 100));
+    REQUIRE(history.observe_prediction(identity, 0, 2, 100));
+    REQUIRE(history.observe_prediction(identity, 2, 6, 100));
+    CHECK(history.classify_authority(identity, 6, 0, 99) == hero_animation::AuthorityAction::Historical);
+    CHECK(history.classify_authority(identity, 6, 0, 100) == hero_animation::AuthorityAction::Historical);
+    CHECK(history.classify_authority(identity, 6, 2, 100) == hero_animation::AuthorityAction::Historical);
+    CHECK(history.classify_authority(identity, 6, 6, 100) == hero_animation::AuthorityAction::Native);
 
-    CHECK(history.classify_authority(identity, 8, 0, 101) == hero_animation::AuthorityAction::Apply);
-    CHECK_FALSE(history.local_action_active(identity));
+    REQUIRE(history.observe_prediction(identity, 6, 0, 120));
+    CHECK(history.classify_authority(identity, 0, 6, 119) == hero_animation::AuthorityAction::Historical);
+    CHECK(history.classify_authority(identity, 0, 0, 120) == hero_animation::AuthorityAction::Native);
 }
 
-TEST_CASE("Remote hero history preserves repeated states and applies ambiguous authority",
-          "[patches][hero_animation]") {
-    hero_animation::HeroHistory history;
-    const auto identity = remote_identity();
+TEST_CASE("Local hero history distinguishes repeated occurrences from corrections", "[patches][hero_animation]") {
+    hero_animation::LocalHistory history;
+    const auto identity = local_identity();
 
-    REQUIRE(history.observe_prediction(identity, 0, 7, 0));
-    REQUIRE(history.observe_prediction(identity, 7, 8, 0));
-    REQUIRE(history.observe_prediction(identity, 8, 7, 0));
+    REQUIRE(history.observe_prediction(identity, 0, 16, 100));
+    REQUIRE(history.observe_prediction(identity, 16, 15, 101));
+    REQUIRE(history.observe_prediction(identity, 15, 16, 102));
 
-    CHECK(history.classify_authority(identity, 7, 7, 0) == hero_animation::AuthorityAction::Apply);
-    CHECK(history.classify_authority(identity, 7, 8, 0) == hero_animation::AuthorityAction::SuppressHistorical);
-    CHECK(history.classify_authority(identity, 7, 7, 0) == hero_animation::AuthorityAction::Apply);
+    CHECK(history.classify_authority(identity, 16, 16, 100) == hero_animation::AuthorityAction::Historical);
+    CHECK(history.classify_authority(identity, 16, 15, 101) == hero_animation::AuthorityAction::Historical);
+    CHECK(history.classify_authority(identity, 16, 16, 102) == hero_animation::AuthorityAction::Native);
 
-    REQUIRE(history.observe_prediction(identity, 7, 9, 0));
-    CHECK(history.classify_authority(identity, 9, 7, 0) == hero_animation::AuthorityAction::Apply);
+    REQUIRE(history.observe_prediction(identity, 16, 0, 110));
+    CHECK(history.classify_authority(identity, 0, 7, 110) == hero_animation::AuthorityAction::Corrected);
 }
 
-TEST_CASE("Hero reconciliation is one-shot, identity-bound, and bounded", "[patches][hero_animation]") {
-    hero_animation::HeroHistory history;
+TEST_CASE("Remote hero history bounds idle ambiguity and restores only continuous input", "[patches][hero_animation]") {
+    hero_animation::RemoteHistory history;
     const auto identity = remote_identity();
 
-    history.record_authority_transition(identity, 7);
-    std::uint8_t down = 0x80;
-    REQUIRE(history.reconcile_input(identity, 0x26, down));
-    CHECK(down == 0xA6);
+    CHECK(history.classify_authority(identity, 0, 0, 10) == hero_animation::AuthorityAction::Native);
+    REQUIRE(history.observe_prediction(identity, 0, 7, 11));
+    CHECK(history.classify_authority(identity, 7, 0, 11) == hero_animation::AuthorityAction::Historical);
+    CHECK(history.classify_authority(identity, 7, 0, 12) == hero_animation::AuthorityAction::Historical);
+    CHECK(history.classify_authority(identity, 7, 0, 13) == hero_animation::AuthorityAction::Corrected);
+
+    std::uint8_t down{};
+    history.begin_prediction(identity);
+    CHECK_FALSE(history.reconcile_input(identity, 0x22, down));
+    history.finish_prediction(identity);
+
+    // Prediction restored an idle authority snapshot, but the public input level remained held.
+    down = 0;
+    history.begin_prediction(identity);
+    REQUIRE(history.reconcile_input(identity, 0x22, down));
+    CHECK(down == 0x22);
+    history.finish_prediction(identity);
+
+    history.begin_authority(identity);
+    history.observe_authority_application(identity, 0, 7);
+    history.begin_prediction(identity);
     CHECK_FALSE(history.reconcile_input(identity, 0x26, down));
     CHECK(history.resolve_replay(identity, 7));
-
-    history.record_authority_transition(identity, 8);
     CHECK_FALSE(history.resolve_replay(identity, 7));
-    CHECK_FALSE(history.resolve_replay(identity, 8));
-
-    history.record_authority_transition(identity, 9);
-    const auto replacement = remote_identity(99);
-    history.begin_prediction(replacement);
-    down = 0;
-    CHECK_FALSE(history.reconcile_input(identity, 0x02, down));
-    CHECK_FALSE(history.resolve_replay(identity, 9));
-
-    auto base_state = 0;
-    for (std::size_t index = 0; index < hero_animation::kRemoteStateCapacity; ++index) {
-        const auto target_state = base_state == 1 ? 2 : 1;
-        REQUIRE(history.observe_prediction(replacement, base_state, target_state, 0));
-        base_state = target_state;
-    }
-    const auto overflow_target = base_state == 1 ? 2 : 1;
-    CHECK_FALSE(history.observe_prediction(replacement, base_state, overflow_target, 0));
+    history.finish_prediction(identity);
 }

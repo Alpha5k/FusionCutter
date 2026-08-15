@@ -14,7 +14,7 @@ using EnterStateFunction = void(__thiscall*)(void*, int);
 using ExitStateFunction = void(__thiscall*)(void*);
 using OverrideVelocityFunction = bool(__thiscall*)(void*, float*, float*, float*, float*);
 using WriteFunction = void(__thiscall*)(void*, void*);
-using DeflectFunction = bool(__thiscall*)(void*, void*, float*, std::uint32_t);
+using MeleeContactFunction = bool(__thiscall*)(void*, void*, float*, std::uint32_t);
 
 constexpr std::size_t kStateOffset = 0x180;
 constexpr std::size_t kPreviousStateOffset = 0x184;
@@ -32,7 +32,7 @@ OriginalFunction<EnterStateFunction> gEnterStateOriginal;
 OriginalFunction<ExitStateFunction> gExitStateOriginal;
 OriginalFunction<OverrideVelocityFunction> gOverrideVelocityOriginal;
 OriginalFunction<WriteFunction> gWriteOriginal;
-OriginalFunction<DeflectFunction> gDeflectOriginal;
+OriginalFunction<MeleeContactFunction> gMeleeContactOriginal;
 const std::byte* gMoveHistory{};
 
 [[nodiscard]] std::uint32_t pointer_id(const void* pointer) noexcept {
@@ -97,6 +97,7 @@ bool __fastcall hook_update(void* weapon, void*, float delta) noexcept {
         record = {
             .turn = diagnostics->turn_context(),
             .delta = delta,
+            .effective_delta = delta,
             .state_time_before = read_native_field<float>(weapon, kStateTimeOffset),
             .input_time_before = read_native_field<float>(weapon, kInputTimeOffset),
             .state_fingerprint = diagnostics->state_fingerprint(*subject),
@@ -246,11 +247,10 @@ void __fastcall hook_write(void* weapon, void*, void* stream) noexcept {
     }
 }
 
-bool __fastcall hook_deflect(void* weapon, void*, void* target, float* position, std::uint32_t filter) noexcept {
+bool __fastcall hook_melee_contact(void* weapon, void*, void* target, float* position, std::uint32_t filter) noexcept {
     auto* diagnostics = active_diagnostics();
     auto* subject = diagnostics != nullptr ? diagnostics->bind(weapon) : nullptr;
     trace::MeleeContactRecord contact{};
-    trace::DeflectionRecord deflection{};
     if (subject != nullptr) {
         contact = {
             .turn = diagnostics->turn_context(),
@@ -259,27 +259,23 @@ bool __fastcall hook_deflect(void* weapon, void*, void* target, float* position,
             .state = read_native_field<int>(weapon, kStateOffset),
             .state_fingerprint = diagnostics->state_fingerprint(*subject),
         };
-        deflection = {.turn = contact.turn, .target = contact.target, .state = contact.state};
         if (position != nullptr) {
-            std::memcpy(contact.position.data(), position, sizeof(contact.position));
-            deflection.input_position = contact.position;
+            std::memcpy(contact.input_position.data(), position, sizeof(contact.input_position));
         }
-        diagnostics->submit(trace::RecordKind::MeleeContact, trace::payload_bytes(contact), *subject,
-                            trace::RecordFlags::Begin | trace::RecordFlags::Authority);
     }
-    const auto original = gDeflectOriginal.get();
+    const auto original = gMeleeContactOriginal.get();
     const auto result = original != nullptr && original(weapon, target, position, filter);
     if (subject != nullptr) {
         if (position != nullptr) {
-            std::memcpy(deflection.output_position.data(), position, sizeof(deflection.output_position));
+            std::memcpy(contact.output_position.data(), position, sizeof(contact.output_position));
         }
-        deflection.result = static_cast<std::uint8_t>(result);
+        contact.result = static_cast<std::uint8_t>(result);
         auto flags = static_cast<std::uint16_t>(trace::RecordFlags::End | trace::RecordFlags::Authority |
                                                 trace::RecordFlags::NativeCalled);
         if (result) {
             flags |= trace::RecordFlags::NativeResult;
         }
-        diagnostics->submit(trace::RecordKind::Deflection, trace::payload_bytes(deflection), *subject, flags);
+        diagnostics->submit(trace::RecordKind::MeleeContact, trace::payload_bytes(contact), *subject, flags);
     }
     return result;
 }
@@ -304,9 +300,9 @@ void build_server_plan(PatchPlan& plan, const TargetContext& target, CaptureMode
                                                                    layout.write.pattern(),
                                                                    reinterpret_cast<WriteFunction>(&hook_write));
     if (mode != CaptureMode::Standard) {
-        gDeflectOriginal = plan.inline_hook_with_original<DeflectFunction>(
-            "Observe authoritative melee deflections", layout.deflect.rva, layout.deflect.pattern(),
-            reinterpret_cast<DeflectFunction>(&hook_deflect));
+        gMeleeContactOriginal = plan.inline_hook_with_original<MeleeContactFunction>(
+            "Observe authoritative melee contact resolution", layout.melee_contact.rva, layout.melee_contact.pattern(),
+            reinterpret_cast<MeleeContactFunction>(&hook_melee_contact));
     }
     gMoveHistory = target.image.read_at_rva<std::byte>(layout.move_history_rva);
 }

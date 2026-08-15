@@ -15,6 +15,8 @@ constexpr auto kInputQueueUpdate =
     byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x08, 0xF3, 0x0F, 0x10, 0x1D, 0x00, 0x00, 0x00, 0x00, 0x8B, 0xD1>();
 constexpr auto kPredictionTransition =
     byte_array<0xE8, 0xE1, 0x22, 0x00, 0x00, 0x56, 0x8B, 0xCB, 0xE8, 0x19, 0x20, 0x00, 0x00, 0xF3, 0x0F, 0x10>();
+constexpr auto kSteamTransitionSound = byte_array<0xE8, 0xCB, 0xC1, 0xEA, 0xFF>();
+constexpr auto kGogTransitionSound = byte_array<0xE8, 0xAB, 0xBE, 0xEA, 0xFF>();
 
 constexpr HeroMeleeLayout kSteamLayout{
     .update = {.rva = 0x00289290, .expected = kUpdate},
@@ -23,6 +25,7 @@ constexpr HeroMeleeLayout kSteamLayout{
     .animator_state = {.rva = 0x0023F990, .expected = kAnimatorState},
     .input_queue_update = {.rva = 0x0028B400, .expected = kInputQueueUpdate},
     .prediction_transition = {.rva = 0x00289C0A, .expected = kPredictionTransition},
+    .transition_sound = {.rva = 0x0028BE40, .expected = kSteamTransitionSound},
     .input_queue_constant_rva = 0x003B1F98,
 };
 
@@ -33,6 +36,7 @@ constexpr HeroMeleeLayout kGogLayout{
     .animator_state = {.rva = 0x00240A30, .expected = kAnimatorState},
     .input_queue_update = {.rva = 0x0028C490, .expected = kInputQueueUpdate},
     .prediction_transition = {.rva = 0x0028AC9A, .expected = kPredictionTransition},
+    .transition_sound = {.rva = 0x0028CED0, .expected = kGogTransitionSound},
     .input_queue_constant_rva = 0x003B2F10,
 };
 

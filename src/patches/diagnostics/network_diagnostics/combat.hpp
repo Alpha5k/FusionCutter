@@ -12,6 +12,7 @@ struct CombatLayout {
     NativeSite<10> ray_hit;
     NativeSite<5> ray_return;
     NativeSite<7> apply_damage;
+    NativeSite<7> apply_impact_damage;
 };
 
 // Installs the fire, projectile, collision, and damage observers shared by both roles.

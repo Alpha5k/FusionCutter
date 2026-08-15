@@ -16,8 +16,8 @@ using ActionStateFunction = void(__thiscall*)(void*, std::uint32_t, const float*
 using SetupPoseFunction = void(__thiscall*)(void*, void*);
 using OverrideControlsFunction = bool(__thiscall*)(void*);
 using OverrideVelocityFunction = bool(__thiscall*)(void*, float*, float*, float*, float*);
-using SoundPlayFunction = void(__thiscall*)(void*, void*, void*, std::uint32_t, std::uint32_t);
-using DeflectFunction = bool(__thiscall*)(void*, void*, float*, std::uint32_t);
+using MeleeContactFunction = bool(__thiscall*)(void*, void*, float*, std::uint32_t);
+using LocomotionFunction = bool(__thiscall*)(void*);
 
 constexpr std::size_t kStateOffset = 0x180;
 constexpr std::size_t kPreviousStateOffset = 0x184;
@@ -37,8 +37,9 @@ OriginalFunction<ActionStateFunction> gActionStateOriginal;
 OriginalFunction<SetupPoseFunction> gSetupPoseOriginal;
 OriginalFunction<OverrideControlsFunction> gOverrideControlsOriginal;
 OriginalFunction<OverrideVelocityFunction> gOverrideVelocityOriginal;
-OriginalFunction<SoundPlayFunction> gSoundPlayOriginal;
-OriginalFunction<DeflectFunction> gDeflectOriginal;
+OriginalFunction<MeleeContactFunction> gMeleeContactOriginal;
+OriginalFunction<LocomotionFunction> gJumpOriginal;
+OriginalFunction<LocomotionFunction> gRollOriginal;
 const std::byte* gRemoteMoves{};
 const volatile float* gOuterDelta{};
 
@@ -88,6 +89,28 @@ presentation_sample(HeroDiagnostics& diagnostics, const HeroSubject& subject, tr
             (read_native_field<std::uint8_t>(animator, 0x1610) != 0 ? trace::UpperAnimationFinished : 0) |
             (read_native_field<std::uint8_t>(animator, 0x1FC0) != 0 ? trace::LowerAnimationFinished : 0)),
     };
+}
+
+// Records native jump and roll admission without changing the movement decision.
+[[nodiscard]] bool observe_locomotion_attempt(void* soldier, OriginalFunction<LocomotionFunction>& function,
+                                              trace::LocomotionOperation operation) noexcept {
+    auto* diagnostics = active_diagnostics();
+    auto* subject = diagnostics != nullptr ? diagnostics->find_soldier(soldier) : nullptr;
+    const auto before = subject != nullptr ? diagnostics->locomotion_state(soldier) : trace::LocomotionState{};
+    const auto original = function.get();
+    const auto result = original != nullptr && original(soldier);
+    if (subject != nullptr) {
+        diagnostics->record_locomotion(*subject, operation, before, diagnostics->locomotion_state(soldier), result);
+    }
+    return result;
+}
+
+bool __fastcall hook_jump(void* soldier, void*) noexcept {
+    return observe_locomotion_attempt(soldier, gJumpOriginal, trace::LocomotionOperation::Jump);
+}
+
+bool __fastcall hook_roll(void* soldier, void*) noexcept {
+    return observe_locomotion_attempt(soldier, gRollOriginal, trace::LocomotionOperation::Roll);
 }
 
 void __fastcall hook_read(void* weapon, void*, void* stream) noexcept {
@@ -253,27 +276,6 @@ bool __fastcall hook_override_velocity(void* weapon, void*, float* first, float*
     return result;
 }
 
-void __fastcall hook_sound_play(void* sound, void*, void* first, void* second, std::uint32_t third,
-                                std::uint32_t fourth) noexcept {
-    auto* diagnostics = active_diagnostics();
-    auto* subject = diagnostics != nullptr ? diagnostics->active_transition_subject() : nullptr;
-    if (subject != nullptr) {
-        const trace::AudioCueRecord record{
-            .turn = diagnostics->turn_context(),
-            .sound = pointer_id(sound),
-            .argument0 = pointer_id(first),
-            .argument1 = pointer_id(second),
-            .argument2 = third,
-            .argument3 = fourth,
-            .state = read_native_field<int>(subject->weapon, kStateOffset),
-        };
-        diagnostics->submit(trace::RecordKind::AudioCue, trace::payload_bytes(record), *subject);
-    }
-    if (const auto original = gSoundPlayOriginal.get(); original != nullptr) {
-        original(sound, first, second, third, fourth);
-    }
-}
-
 void observe_parsed_player_move(MidHookContext& context) noexcept {
     auto* diagnostics = active_diagnostics();
     if (diagnostics == nullptr || gRemoteMoves == nullptr || context.ebp < sizeof(std::int32_t)) {
@@ -352,11 +354,10 @@ void after_soldier_read(void* context, const soldier_state_pipeline::ReadContext
                        trace::RecordFlags::End | trace::RecordFlags::Authority | trace::RecordFlags::NativeCalled);
 }
 
-bool __fastcall hook_deflect(void* weapon, void*, void* target, float* position, std::uint32_t filter) noexcept {
+bool __fastcall hook_melee_contact(void* weapon, void*, void* target, float* position, std::uint32_t filter) noexcept {
     auto* diagnostics = active_diagnostics();
     auto* subject = diagnostics != nullptr ? diagnostics->bind(weapon) : nullptr;
     trace::MeleeContactRecord contact{};
-    trace::DeflectionRecord deflection{};
     if (subject != nullptr) {
         contact = {
             .turn = diagnostics->turn_context(),
@@ -365,30 +366,22 @@ bool __fastcall hook_deflect(void* weapon, void*, void* target, float* position,
             .state = read_native_field<int>(weapon, kStateOffset),
             .state_fingerprint = diagnostics->state_fingerprint(*subject),
         };
-        deflection = {
-            .turn = contact.turn,
-            .target = contact.target,
-            .state = contact.state,
-        };
         if (position != nullptr) {
-            std::memcpy(contact.position.data(), position, sizeof(contact.position));
-            deflection.input_position = contact.position;
+            std::memcpy(contact.input_position.data(), position, sizeof(contact.input_position));
         }
-        diagnostics->submit(trace::RecordKind::MeleeContact, trace::payload_bytes(contact), *subject,
-                            trace::RecordFlags::Begin);
     }
-    const auto original = gDeflectOriginal.get();
+    const auto original = gMeleeContactOriginal.get();
     const auto result = original != nullptr && original(weapon, target, position, filter);
     if (subject != nullptr) {
         if (position != nullptr) {
-            std::memcpy(deflection.output_position.data(), position, sizeof(deflection.output_position));
+            std::memcpy(contact.output_position.data(), position, sizeof(contact.output_position));
         }
-        deflection.result = static_cast<std::uint8_t>(result);
+        contact.result = static_cast<std::uint8_t>(result);
         auto record_flags = static_cast<std::uint16_t>(trace::RecordFlags::End | trace::RecordFlags::NativeCalled);
         if (result) {
             record_flags |= trace::RecordFlags::NativeResult;
         }
-        diagnostics->submit(trace::RecordKind::Deflection, trace::payload_bytes(deflection), *subject, record_flags);
+        diagnostics->submit(trace::RecordKind::MeleeContact, trace::payload_bytes(contact), *subject, record_flags);
     }
     return result;
 }
@@ -410,14 +403,17 @@ void build_client_plan(PatchPlan& plan, const TargetContext& target, CaptureMode
         "Observe melee velocity overrides", layout.override_velocity.rva, layout.override_velocity.pattern(),
         reinterpret_cast<OverrideVelocityFunction>(&hook_override_velocity));
     if (mode != CaptureMode::Standard) {
-        gSoundPlayOriginal = plan.inline_hook_with_original<SoundPlayFunction>(
-            "Observe melee transition sounds", layout.sound_play.rva, layout.sound_play.pattern(),
-            reinterpret_cast<SoundPlayFunction>(&hook_sound_play));
         plan.mid_hook("Observe parsed remote hero input", layout.player_move_parsed.rva,
                       layout.player_move_parsed.pattern(), &observe_parsed_player_move);
-        gDeflectOriginal = plan.inline_hook_with_original<DeflectFunction>(
-            "Observe melee deflections", layout.deflect.rva, layout.deflect.pattern(),
-            reinterpret_cast<DeflectFunction>(&hook_deflect));
+        gMeleeContactOriginal = plan.inline_hook_with_original<MeleeContactFunction>(
+            "Observe melee contact resolution", layout.melee_contact.rva, layout.melee_contact.pattern(),
+            reinterpret_cast<MeleeContactFunction>(&hook_melee_contact));
+        gJumpOriginal = plan.inline_hook_with_original<LocomotionFunction>(
+            "Observe hero jump admission", layout.jump.rva, layout.jump.pattern(),
+            reinterpret_cast<LocomotionFunction>(&hook_jump));
+        gRollOriginal = plan.inline_hook_with_original<LocomotionFunction>(
+            "Observe hero roll admission", layout.roll.rva, layout.roll.pattern(),
+            reinterpret_cast<LocomotionFunction>(&hook_roll));
     }
     if (mode == CaptureMode::Full) {
         gActionStateOriginal = plan.inline_hook_with_original<ActionStateFunction>(

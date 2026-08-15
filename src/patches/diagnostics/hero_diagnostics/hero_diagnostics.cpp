@@ -22,11 +22,19 @@ constexpr std::size_t kInputQueueOffset = 0x134;
 constexpr std::size_t kInputQueueCountOffset = 0x40;
 constexpr std::size_t kInputQueueHeadOffset = 0x41;
 constexpr std::size_t kInputQueueDownOffset = 0x42;
+constexpr std::size_t kStateFlagsOffset = 0x179;
+constexpr std::size_t kActionOffset = 0x17C;
 constexpr std::size_t kRemoteMoveStride = 0x18;
 constexpr std::size_t kPrimaryTriggerOffset = 0x38;
 constexpr std::size_t kSecondaryTriggerOffset = 0x3C;
 constexpr std::size_t kJumpTriggerOffset = 0x44;
 constexpr std::size_t kSprintTriggerOffset = 0x4C;
+constexpr std::size_t kMovementFlagsOffset = 0x471;
+constexpr std::size_t kLocomotionStateOffset = 0x744;
+constexpr std::size_t kEnergyOffset = 0xA14;
+constexpr std::size_t kEnergyFlagsOffset = 0xA18;
+constexpr std::uint32_t kEnergyExhausted = 1U;
+constexpr std::uint8_t kAirborne = 1U << 5U;
 
 struct UpdateDraft {
     HeroDiagnostics* owner{};
@@ -147,6 +155,13 @@ void copy_floats(std::array<float, Size>& destination, const void* object, std::
     return turn.update_pass != 0 ? trace::RecordFlags::Authority : trace::RecordFlags::None;
 }
 
+[[nodiscard]] bool same_locomotion_classification(const trace::LocomotionState& first,
+                                                  const trace::LocomotionState& second) noexcept {
+    return first.state == second.state &&
+           (first.energy_flags & kEnergyExhausted) == (second.energy_flags & kEnergyExhausted) &&
+           (first.movement_flags & kAirborne) == (second.movement_flags & kAirborne);
+}
+
 template <typename Draft> [[nodiscard]] Draft* begin_draft(DraftStack<Draft, 8>& stack) noexcept {
     auto* draft = stack.push();
     if (draft == nullptr) {
@@ -167,17 +182,19 @@ hero_melee_pipeline::DiagnosticsCallbacks make_pipeline_callbacks(HeroDiagnostic
     return {
         .context = &diagnostics,
         .before_update =
-            [](void* context, void* weapon, float delta, const hero_melee_pipeline::UpdateDecision& decision) noexcept {
-                static_cast<HeroDiagnostics*>(context)->begin_update(weapon, delta, decision);
+            [](void* context, void* weapon, float requested_delta, float effective_delta,
+               hero_melee_pipeline::MeleeUpdateMode mode) noexcept {
+                static_cast<HeroDiagnostics*>(context)->begin_update(weapon, requested_delta, effective_delta, mode);
             },
         .after_update =
-            [](void* context, void* weapon, float delta, bool native_called, bool result) noexcept {
-                static_cast<HeroDiagnostics*>(context)->finish_update(weapon, delta, native_called, result);
+            [](void* context, void* weapon, float requested_delta, float effective_delta, bool native_called,
+               bool result) noexcept {
+                static_cast<HeroDiagnostics*>(context)->finish_update(weapon, requested_delta, effective_delta,
+                                                                      native_called, result);
             },
         .before_network_state =
-            [](void* context, void* weapon, int state, bool flag,
-               const hero_melee_pipeline::NetworkStateDecision& decision) noexcept {
-                static_cast<HeroDiagnostics*>(context)->begin_network_state(weapon, state, flag, decision);
+            [](void* context, void* weapon, int state, bool flag, hero_melee_pipeline::NetworkStateMode mode) noexcept {
+                static_cast<HeroDiagnostics*>(context)->begin_network_state(weapon, state, flag, mode);
             },
         .after_network_state =
             [](void* context, void* weapon, int state, bool flag, bool native_called) noexcept {
@@ -199,9 +216,13 @@ hero_melee_pipeline::DiagnosticsCallbacks make_pipeline_callbacks(HeroDiagnostic
             },
         .after_animator_state =
             [](void* context, void* animator, std::uint32_t state, std::uint32_t active, std::uint32_t primary,
-               std::uint32_t secondary, bool suppressed) noexcept {
+               std::uint32_t secondary) noexcept {
                 static_cast<HeroDiagnostics*>(context)->finish_animator_state(animator, state, active, primary,
-                                                                              secondary, suppressed);
+                                                                              secondary);
+            },
+        .transition_sound =
+            [](void* context, const hero_melee_pipeline::TransitionSound& sound) noexcept {
+                static_cast<HeroDiagnostics*>(context)->observe_transition_sound(sound);
             },
         .input_queue =
             [](void* context, const MidHookContext& hook, bool after) noexcept {
@@ -351,11 +372,6 @@ HeroSubject* HeroDiagnostics::find_soldier(const void* soldier) noexcept {
     return subjects_.find_soldier(soldier);
 }
 
-HeroSubject* HeroDiagnostics::active_transition_subject() noexcept {
-    auto* transition = gTransitions.current();
-    return transition != nullptr && transition->owner == this ? transition->subject : nullptr;
-}
-
 trace::TurnContext HeroDiagnostics::turn_context() const noexcept {
     const auto active =
         target_.role == HostRole::Server || (network_enabled_ != nullptr && network_client_active_ != nullptr &&
@@ -404,6 +420,54 @@ std::uint32_t HeroDiagnostics::state_fingerprint(const HeroSubject& subject) con
     return hash;
 }
 
+trace::LocomotionState HeroDiagnostics::locomotion_state(const void* soldier) const noexcept {
+    if (soldier == nullptr) {
+        return {};
+    }
+    return {
+        .state = read_native_field<std::int32_t>(soldier, kLocomotionStateOffset),
+        .energy = read_native_field<float>(soldier, kEnergyOffset),
+        .energy_flags = read_native_field<std::uint32_t>(soldier, kEnergyFlagsOffset),
+        .movement_flags = read_native_field<std::uint8_t>(soldier, kMovementFlagsOffset),
+    };
+}
+
+// Records state changes that can begin or clear a stale client locomotion classification.
+void HeroDiagnostics::observe_locomotion(HeroSubject& subject) noexcept {
+    const auto current = locomotion_state(subject.soldier);
+    const auto previous = subject.locomotion_seen ? subject.last_locomotion : current;
+    const auto changed = !subject.locomotion_seen || !same_locomotion_classification(previous, current);
+    subject.last_locomotion = current;
+    subject.locomotion_seen = true;
+    if (changed) {
+        record_locomotion(subject, trace::LocomotionOperation::Snapshot, previous, current, false);
+    }
+}
+
+void HeroDiagnostics::record_locomotion(HeroSubject& subject, trace::LocomotionOperation operation,
+                                        const trace::LocomotionState& before, const trace::LocomotionState& after,
+                                        bool result) noexcept {
+    const trace::LocomotionRecord record{
+        .turn = turn_context(),
+        .before = before,
+        .after = after,
+        .soldier = pointer_id(subject.soldier),
+        .operation = operation,
+        .result = static_cast<std::uint8_t>(result),
+    };
+    auto flags = turn_flags(record.turn);
+    if (!same_locomotion_classification(before, after)) {
+        flags |= trace::RecordFlags::StateChanged;
+    }
+    if (operation != trace::LocomotionOperation::Snapshot) {
+        flags |= trace::RecordFlags::NativeCalled;
+        if (result) {
+            flags |= trace::RecordFlags::NativeResult;
+        }
+    }
+    submit(trace::RecordKind::Locomotion, trace::payload_bytes(record), subject, flags);
+}
+
 void HeroDiagnostics::announce(HeroSubject& subject) noexcept {
     if (subject.announced) {
         return;
@@ -425,8 +489,9 @@ void HeroDiagnostics::announce(HeroSubject& subject) noexcept {
                     subject_flags(subject));
 }
 
-void HeroDiagnostics::submit(trace::RecordKind kind, std::span<const std::byte> payload, const HeroSubject& subject,
+void HeroDiagnostics::submit(trace::RecordKind kind, std::span<const std::byte> payload, HeroSubject& subject,
                              std::uint16_t flags) noexcept {
+    announce(subject);
     channel_.submit(static_cast<std::uint16_t>(kind), payload, subject.id,
                     static_cast<std::uint16_t>(flags | subject_flags(subject)));
 }
@@ -450,8 +515,8 @@ std::uint32_t HeroDiagnostics::next_scope() noexcept {
 }
 
 // Captures one complete native melee update without changing its ownership decision.
-void HeroDiagnostics::begin_update(void* weapon, float delta,
-                                   const hero_melee_pipeline::UpdateDecision& decision) noexcept {
+void HeroDiagnostics::begin_update(void* weapon, float requested_delta, float effective_delta,
+                                   hero_melee_pipeline::MeleeUpdateMode mode) noexcept {
     auto* draft = begin_draft(gUpdates);
     if (draft == nullptr) {
         channel_.omit();
@@ -463,15 +528,19 @@ void HeroDiagnostics::begin_update(void* weapon, float delta,
         return;
     }
     draft->subject = subject;
+    if (target_.role == HostRole::Client && settings_.capture != CaptureMode::Standard) {
+        observe_locomotion(*subject);
+    }
     auto& record = draft->record;
     record.turn = turn_context();
-    record.delta = delta;
+    record.delta = requested_delta;
+    record.effective_delta = effective_delta;
     record.state_time_before = read_native_field<float>(weapon, kStateTimeOffset);
     record.input_time_before = read_native_field<float>(weapon, kInputTimeOffset);
     record.state_fingerprint = state_fingerprint(*subject);
     record.state_before = static_cast<std::int8_t>(read_native_field<int>(weapon, kStateOffset));
     record.previous_before = static_cast<std::int8_t>(read_native_field<int>(weapon, kPreviousStateOffset));
-    record.decision = decision.call_native ? 0 : 1;
+    record.decision = static_cast<std::uint8_t>(mode);
     draft->flags = turn_flags(record.turn);
 
     if (settings_.capture != CaptureMode::Standard && subject->local_player == 0xFF && remote_moves_ != nullptr) {
@@ -502,7 +571,7 @@ void HeroDiagnostics::begin_update(void* weapon, float delta,
     }
 }
 
-void HeroDiagnostics::finish_update(void* weapon, float, bool native_called, bool result) noexcept {
+void HeroDiagnostics::finish_update(void* weapon, float, float, bool native_called, bool result) noexcept {
     auto* draft = finish_draft(gUpdates);
     if (draft == nullptr) {
         return;
@@ -534,8 +603,8 @@ void HeroDiagnostics::finish_update(void* weapon, float, bool native_called, boo
     gUpdates.pop();
 }
 
-void HeroDiagnostics::begin_network_state(void* weapon, int, bool flag,
-                                          const hero_melee_pipeline::NetworkStateDecision& decision) noexcept {
+void HeroDiagnostics::begin_network_state(void* weapon, int state, bool flag,
+                                          hero_melee_pipeline::NetworkStateMode mode) noexcept {
     auto* draft = begin_draft(gNetworkStates);
     if (draft == nullptr) {
         channel_.omit();
@@ -550,11 +619,14 @@ void HeroDiagnostics::begin_network_state(void* weapon, int, bool flag,
     auto& record = draft->record;
     record.turn = turn_context();
     record.state_before = read_native_field<int>(weapon, kStateOffset);
-    record.requested_state = decision.state;
+    record.requested_state = state;
     record.state_time_before = read_native_field<float>(weapon, kStateTimeOffset);
     record.state_fingerprint = state_fingerprint(*subject);
     record.scope = gReadScope;
+    record.action = read_native_field<std::uint16_t>(weapon, kActionOffset);
+    record.state_flags = read_native_field<std::uint8_t>(weapon, kStateFlagsOffset);
     record.set_flag = static_cast<std::uint8_t>(flag);
+    record.decision = static_cast<std::uint8_t>(mode);
     record.operation = trace::NetworkStateOperation::Apply;
     draft->flags = trace::RecordFlags::Authority;
 }
@@ -653,20 +725,37 @@ void HeroDiagnostics::begin_animator_state(void* animator, std::uint32_t state, 
     draft->record.lower_clip = secondary;
 }
 
-void HeroDiagnostics::finish_animator_state(void* animator, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t,
-                                            bool suppressed) noexcept {
+void HeroDiagnostics::finish_animator_state(void* animator, std::uint32_t, std::uint32_t, std::uint32_t,
+                                            std::uint32_t) noexcept {
     auto* draft = finish_draft(gPresentations);
     if (draft == nullptr) {
         return;
     }
     if (draft->owner == this && draft->animator == animator && draft->subject != nullptr) {
-        if (suppressed) {
-            draft->record.status |= trace::PresentationSuppressed;
-        }
-        auto flags = suppressed ? trace::RecordFlags::Suppressed : trace::RecordFlags::NativeCalled;
-        submit(trace::RecordKind::PresentationFrame, trace::payload_bytes(draft->record), *draft->subject, flags);
+        submit(trace::RecordKind::PresentationFrame, trace::payload_bytes(draft->record), *draft->subject,
+               trace::RecordFlags::NativeCalled);
     }
     gPresentations.pop();
+}
+
+void HeroDiagnostics::observe_transition_sound(const hero_melee_pipeline::TransitionSound& sound) noexcept {
+    if (settings_.capture == CaptureMode::Standard || sound.weapon == nullptr) {
+        return;
+    }
+    auto* subject = find_weapon(sound.weapon);
+    if (subject == nullptr) {
+        return;
+    }
+    const trace::AudioCueRecord record{
+        .turn = turn_context(),
+        .sound = pointer_id(sound.sound),
+        .argument0 = pointer_id(sound.argument0),
+        .argument1 = pointer_id(sound.argument1),
+        .argument2 = sound.argument2,
+        .argument3 = sound.argument3,
+        .state = read_native_field<int>(subject->weapon, kStateOffset),
+    };
+    submit(trace::RecordKind::AudioCue, trace::payload_bytes(record), *subject, trace::RecordFlags::NativeCalled);
 }
 
 void HeroDiagnostics::observe_input_queue(const MidHookContext& context, bool after) noexcept {

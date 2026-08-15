@@ -15,11 +15,14 @@ using WeaponFire = bool(__fastcall*)(void*, void*) noexcept;
 using BulletBuild = void*(__fastcall*)(void*, void*, const void*) noexcept;
 using BulletUpdate = bool(__fastcall*)(void*, void*, float) noexcept;
 using ApplyDamage = bool(__fastcall*)(void*, void*, const void*, std::uint32_t) noexcept;
+using ApplyImpactDamage = bool(__fastcall*)(void*, void*, const void*, const void*, std::uint32_t, std::uint32_t,
+                                            std::uint32_t) noexcept;
 
 OriginalFunction<WeaponFire> gWeaponFire;
 OriginalFunction<BulletBuild> gBulletBuild;
 OriginalFunction<BulletUpdate> gBulletUpdate;
 OriginalFunction<ApplyDamage> gApplyDamage;
+OriginalFunction<ApplyImpactDamage> gApplyImpactDamage;
 thread_local trace::WeaponFireRecord* gActiveFire{};
 thread_local void* gActiveProjectile{};
 thread_local std::uint32_t gActiveProjectileId{};
@@ -256,29 +259,53 @@ void observe_projectile_ray_result(MidHookContext& context) noexcept {
     gProjectileSimulation.ray_result = context.xmm0.f32[0];
 }
 
-// Records the health and shield mutation produced by native damage application.
-bool __fastcall observe_apply_damage(void* damageable, void*, const void* descriptor, std::uint32_t flags) noexcept {
-    const auto start = trace::read_stamp();
-    trace::DamageRecord record{
+[[nodiscard]] trace::DamageRecord begin_damage_record(void* damageable, const void* descriptor, std::uint32_t flags,
+                                                      trace::DamageKind kind) noexcept {
+    return {
         .damageable = pointer_id(damageable),
+        .source = descriptor == nullptr ? 0 : pointer_id(read_field<const void*>(descriptor, 0)),
         .descriptor = pointer_id(descriptor),
         .projectile = pointer_id(gActiveProjectile),
         .projectile_id = gActiveProjectileId,
         .flags = flags,
         .health_before = read_field<float>(damageable, 0x04),
         .shield_before = read_field<float>(damageable, 0x10),
+        .kind = kind,
     };
-    const auto original = gApplyDamage.get();
-    const auto alive = original != nullptr && original(damageable, nullptr, descriptor, flags);
+}
+
+void finish_damage_record(trace::DamageRecord& record, void* damageable, bool result, trace::Stamp start) noexcept {
     record.health_after = read_field<float>(damageable, 0x04);
     record.shield_after = read_field<float>(damageable, 0x10);
-    record.alive_after = alive;
+    record.result = static_cast<std::uint8_t>(result);
     record.duration = trace::read_stamp().timestamp - start.timestamp;
     if (auto* diagnostics = active_diagnostics(); diagnostics != nullptr) {
         diagnostics->recorder().submit(trace::RecordKind::Damage, trace::payload_bytes(record), record.damageable,
                                        trace::RecordFlags::Combat);
     }
-    return alive;
+}
+
+// Records damage applied without a directional impact calculation.
+bool __fastcall observe_apply_damage(void* damageable, void*, const void* descriptor, std::uint32_t flags) noexcept {
+    const auto start = trace::read_stamp();
+    auto record = begin_damage_record(damageable, descriptor, flags, trace::DamageKind::Direct);
+    const auto original = gApplyDamage.get();
+    const auto result = original != nullptr && original(damageable, nullptr, descriptor, flags);
+    finish_damage_record(record, damageable, result, start);
+    return result;
+}
+
+// Records the directional damage path used by projectile and melee impacts.
+bool __fastcall observe_apply_impact_damage(void* damageable, void*, const void* descriptor, const void* direction,
+                                            std::uint32_t effect, std::uint32_t damage_type,
+                                            std::uint32_t flags) noexcept {
+    const auto start = trace::read_stamp();
+    auto record = begin_damage_record(damageable, descriptor, flags, trace::DamageKind::Impact);
+    const auto original = gApplyImpactDamage.get();
+    const auto result =
+        original != nullptr && original(damageable, nullptr, descriptor, direction, effect, damage_type, flags);
+    finish_damage_record(record, damageable, result, start);
+    return result;
 }
 
 } // namespace
@@ -298,6 +325,9 @@ void build_combat_plan(PatchPlan& plan, const CombatLayout& layout) {
                   &observe_projectile_ray_result);
     gApplyDamage = plan.inline_hook_with_original("Observe damage application", layout.apply_damage.rva,
                                                   layout.apply_damage.pattern(), &observe_apply_damage);
+    gApplyImpactDamage =
+        plan.inline_hook_with_original("Observe impact damage application", layout.apply_impact_damage.rva,
+                                       layout.apply_impact_damage.pattern(), &observe_apply_impact_damage);
 }
 
 } // namespace fusioncutter::patches::network_diagnostics

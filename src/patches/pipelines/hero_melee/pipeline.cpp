@@ -2,7 +2,9 @@
 
 #include "layout.hpp"
 
+#include <array>
 #include <atomic>
+#include <cstddef>
 
 namespace fusioncutter::patches::hero_melee_pipeline {
 namespace {
@@ -12,6 +14,35 @@ using SetNetworkStateFunction = void(__thiscall*)(void*, int, bool);
 using EnterStateFunction = void(__thiscall*)(void*, int);
 using AnimatorStateFunction = void(__thiscall*)(void*, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t,
                                                 std::uint32_t);
+using SoundPlayFunction = void(__thiscall*)(void*, void*, void*, std::uint32_t, std::uint32_t);
+
+struct TransitionFrame {
+    void* weapon{};
+};
+
+struct TransitionStack {
+    [[nodiscard]] bool push(TransitionFrame frame) noexcept {
+        if (size == frames.size()) {
+            return false;
+        }
+        frames[size++] = frame;
+        return true;
+    }
+
+    [[nodiscard]] const TransitionFrame* current() const noexcept {
+        return size == 0 ? nullptr : &frames[size - 1];
+    }
+
+    void pop() noexcept {
+        if (size != 0) {
+            --size;
+        }
+    }
+
+    std::array<TransitionFrame, 4> frames{};
+    std::size_t size{};
+    std::size_t overflow{};
+};
 
 std::atomic<const PolicyCallbacks*> gPolicy;
 std::atomic<const DiagnosticsCallbacks*> gDiagnostics;
@@ -19,47 +50,53 @@ OriginalFunction<UpdateFunction> gUpdateOriginal;
 OriginalFunction<SetNetworkStateFunction> gSetNetworkStateOriginal;
 OriginalFunction<EnterStateFunction> gEnterStateOriginal;
 OriginalFunction<AnimatorStateFunction> gAnimatorStateOriginal;
+OriginalFunction<SoundPlayFunction> gTransitionSoundOriginal;
+thread_local TransitionStack gTransitions;
 
 bool __fastcall hook_update(void* weapon, void*, float delta) noexcept {
     const auto* policy = gPolicy.load(std::memory_order_acquire);
-    const auto decision = policy == nullptr ? UpdateDecision{} : policy->before_update(policy->context, weapon, delta);
+    const auto mode =
+        policy == nullptr ? MeleeUpdateMode::Native : policy->before_update(policy->context, weapon, delta);
+    const auto native_requested = mode == MeleeUpdateMode::Native;
+    const auto effective_delta = native_requested ? delta : 0.0F;
     const auto* diagnostics = gDiagnostics.load(std::memory_order_acquire);
     if (diagnostics != nullptr) {
-        diagnostics->before_update(diagnostics->context, weapon, delta, decision);
+        diagnostics->before_update(diagnostics->context, weapon, delta, effective_delta, mode);
     }
 
     const auto original = gUpdateOriginal.get();
-    const auto result = decision.call_native && original != nullptr ? original(weapon, delta) : decision.result;
+    const auto native_called = native_requested && original != nullptr;
+    const auto result = native_called ? original(weapon, delta) : true;
 
     if (diagnostics != nullptr) {
-        diagnostics->after_update(diagnostics->context, weapon, delta, decision.call_native, result);
+        diagnostics->after_update(diagnostics->context, weapon, delta, effective_delta, native_called, result);
     }
     if (policy != nullptr) {
-        policy->after_update(policy->context, weapon, delta, decision.call_native, result);
+        policy->after_update(policy->context, weapon, delta, native_called, result);
     }
     return result;
 }
 
 void __fastcall hook_set_network_state(void* weapon, void*, int state, bool flag) noexcept {
     const auto* policy = gPolicy.load(std::memory_order_acquire);
-    const auto decision = policy == nullptr ? NetworkStateDecision{state}
-                                            : policy->before_network_state(policy->context, weapon, state, flag);
+    const auto mode = policy == nullptr ? NetworkStateMode::Native
+                                        : policy->before_network_state(policy->context, weapon, state, flag);
     const auto* diagnostics = gDiagnostics.load(std::memory_order_acquire);
     if (diagnostics != nullptr) {
-        diagnostics->before_network_state(diagnostics->context, weapon, state, flag, decision);
+        diagnostics->before_network_state(diagnostics->context, weapon, state, flag, mode);
     }
 
-    if (decision.call_native) {
-        if (const auto original = gSetNetworkStateOriginal.get(); original != nullptr) {
-            original(weapon, decision.state, flag);
-        }
+    const auto original = gSetNetworkStateOriginal.get();
+    const auto native_called = mode == NetworkStateMode::Native && original != nullptr;
+    if (native_called) {
+        original(weapon, state, flag);
     }
 
     if (diagnostics != nullptr) {
-        diagnostics->after_network_state(diagnostics->context, weapon, decision.state, flag, decision.call_native);
+        diagnostics->after_network_state(diagnostics->context, weapon, state, flag, native_called);
     }
     if (policy != nullptr) {
-        policy->after_network_state(policy->context, weapon, decision.state, flag, decision.call_native);
+        policy->after_network_state(policy->context, weapon, state, flag, native_called);
     }
 }
 
@@ -67,6 +104,10 @@ void __fastcall hook_enter_state(void* weapon, void*, int state) noexcept {
     const auto* policy = gPolicy.load(std::memory_order_acquire);
     if (policy != nullptr) {
         policy->enter_state(policy->context, weapon, state);
+    }
+    const auto tracked = gTransitions.push({weapon});
+    if (!tracked) {
+        ++gTransitions.overflow;
     }
     const auto* diagnostics = gDiagnostics.load(std::memory_order_acquire);
     if (diagnostics != nullptr) {
@@ -78,6 +119,11 @@ void __fastcall hook_enter_state(void* weapon, void*, int state) noexcept {
     if (diagnostics != nullptr) {
         diagnostics->after_enter_state(diagnostics->context, weapon, state);
     }
+    if (tracked) {
+        gTransitions.pop();
+    } else {
+        --gTransitions.overflow;
+    }
 }
 
 void __fastcall hook_animator_state(void* animator, void*, std::uint32_t weapon_state, std::uint32_t active,
@@ -88,18 +134,32 @@ void __fastcall hook_animator_state(void* animator, void*, std::uint32_t weapon_
         diagnostics->before_animator_state(diagnostics->context, animator, weapon_state, active, primary_animation,
                                            secondary_animation);
     }
-    const auto* policy = gPolicy.load(std::memory_order_acquire);
-    const auto suppressed =
-        policy != nullptr && policy->suppress_animator_state(policy->context, animator, weapon_state, active,
-                                                             primary_animation, secondary_animation);
-    if (!suppressed) {
-        if (const auto original = gAnimatorStateOriginal.get(); original != nullptr) {
-            original(animator, weapon_state, active, primary_animation, secondary_animation, blend);
-        }
+    if (const auto original = gAnimatorStateOriginal.get(); original != nullptr) {
+        original(animator, weapon_state, active, primary_animation, secondary_animation, blend);
     }
     if (diagnostics != nullptr) {
         diagnostics->after_animator_state(diagnostics->context, animator, weapon_state, active, primary_animation,
-                                          secondary_animation, suppressed);
+                                          secondary_animation);
+    }
+}
+
+void __fastcall hook_transition_sound(void* sound, void*, void* first, void* second, std::uint32_t third,
+                                      std::uint32_t fourth) noexcept {
+    // This redirected EnterState call leaves every other game sound on its native path.
+    const auto* transition = gTransitions.overflow == 0 ? gTransitions.current() : nullptr;
+    if (const auto* diagnostics = gDiagnostics.load(std::memory_order_acquire); diagnostics != nullptr) {
+        diagnostics->transition_sound(diagnostics->context,
+                                      {
+                                          .weapon = transition == nullptr ? nullptr : transition->weapon,
+                                          .sound = sound,
+                                          .argument0 = first,
+                                          .argument1 = second,
+                                          .argument2 = third,
+                                          .argument3 = fourth,
+                                      });
+    }
+    if (const auto original = gTransitionSoundOriginal.get(); original != nullptr) {
+        original(sound, first, second, third, fourth);
     }
 }
 
@@ -147,6 +207,9 @@ void HeroMeleePipeline::build_plan(PatchPlan& plan) {
     gAnimatorStateOriginal = plan.inline_hook_with_original<AnimatorStateFunction>(
         "Share hero melee animator state", layout.animator_state.rva, layout.animator_state.pattern(),
         reinterpret_cast<AnimatorStateFunction>(&hook_animator_state));
+    gTransitionSoundOriginal = plan.redirect_call_with_original<SoundPlayFunction>(
+        "Share hero melee transition sounds", layout.transition_sound.rva, layout.transition_sound.pattern(),
+        reinterpret_cast<SoundPlayFunction>(&hook_transition_sound));
     plan.mid_hook("Share hero melee input edges", layout.input_queue_update.rva,
                   BytePattern::exact(input_queue_preimage(target_.image, layout)), &observe_input_queue);
     plan.mid_hook("Share predicted hero melee transitions", layout.prediction_transition.rva,

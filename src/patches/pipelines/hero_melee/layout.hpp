@@ -14,6 +14,7 @@ struct HeroMeleeLayout {
     NativeSite<16> animator_state;
     NativeSite<16> input_queue_update;
     NativeSite<16> prediction_transition;
+    NativeSite<5> transition_sound;
     std::uint32_t input_queue_constant_rva;
 };
 

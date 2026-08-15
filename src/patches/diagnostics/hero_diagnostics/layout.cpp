@@ -18,10 +18,13 @@ constexpr auto kOverrideControls =
     byte_array<0x55, 0x8B, 0xEC, 0x51, 0x53, 0x56, 0x8B, 0xF1, 0x57, 0x8B, 0x56, 0x6C, 0x8B, 0x82, 0x80, 0x00>();
 constexpr auto kOverrideVelocity =
     byte_array<0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x20, 0x32, 0xD2, 0x0F, 0x57, 0xDB, 0x56, 0x8B, 0xF1, 0x57, 0x6B>();
-constexpr auto kSoundPlay = byte_array<0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8, 0x83, 0xEC, 0x28, 0x56, 0x57, 0x8B, 0xF1>();
 constexpr auto kPlayerMoveParsed = byte_array<0xE9, 0xDD, 0xFE, 0xFF, 0xFF>();
-constexpr auto kDeflect =
+constexpr auto kMeleeContact =
     byte_array<0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF0, 0x81, 0xEC, 0xE8, 0x00, 0x00, 0x00, 0x56, 0x57, 0x8B, 0xF9>();
+constexpr auto kJump =
+    byte_array<0x55, 0x8B, 0xEC, 0x51, 0x8B, 0xD1, 0xF3, 0x0F, 0x10, 0x82, 0xDC, 0x04, 0x00, 0x00, 0xF3, 0x0F>();
+constexpr auto kRoll =
+    byte_array<0x56, 0x8B, 0xF1, 0x57, 0x8B, 0x86, 0x40, 0x04, 0x00, 0x00, 0x8D, 0x8E, 0x10, 0x0A, 0x00, 0x00>();
 constexpr auto kUpdate =
     byte_array<0x55, 0x8B, 0xEC, 0xF3, 0x0F, 0x10, 0x45, 0x08, 0x83, 0xEC, 0x48, 0x53, 0x8B, 0xD9, 0x8B, 0x4B>();
 constexpr auto kEnterState =
@@ -36,9 +39,10 @@ constexpr ClientLayout kSteamClient{
     .setup_pose = {.rva = 0x0023FAA0, .expected = kSetupPose, .mask = kSetupPoseMask},
     .override_controls = {.rva = 0x00288700, .expected = kOverrideControls},
     .override_velocity = {.rva = 0x00288C30, .expected = kOverrideVelocity},
-    .sound_play = {.rva = 0x00138010, .expected = kSoundPlay},
     .player_move_parsed = {.rva = 0x001D2BA4, .expected = kPlayerMoveParsed},
-    .deflect = {.rva = 0x0028A550, .expected = kDeflect},
+    .melee_contact = {.rva = 0x0028A550, .expected = kMeleeContact},
+    .jump = {.rva = 0x000EDC60, .expected = kJump},
+    .roll = {.rva = 0x000EDD30, .expected = kRoll},
     .host_turn_rva = 0x01BA8798,
     .client_turn_rva = 0x01A64BA4,
     .update_turn_rva = 0x01BA65B0,
@@ -62,9 +66,10 @@ constexpr ClientLayout kGogClient{
     .setup_pose = {.rva = 0x00240B40, .expected = kSetupPose, .mask = kSetupPoseMask},
     .override_controls = {.rva = 0x00289780, .expected = kOverrideControls},
     .override_velocity = {.rva = 0x00289CB0, .expected = kOverrideVelocity},
-    .sound_play = {.rva = 0x00138D80, .expected = kSoundPlay},
     .player_move_parsed = {.rva = 0x001D3B24, .expected = kPlayerMoveParsed},
-    .deflect = {.rva = 0x0028B5E0, .expected = kDeflect},
+    .melee_contact = {.rva = 0x0028B5E0, .expected = kMeleeContact},
+    .jump = {.rva = 0x000EDC60, .expected = kJump},
+    .roll = {.rva = 0x000EDD30, .expected = kRoll},
     .host_turn_rva = 0x01BA9C4C,
     .client_turn_rva = 0x01A66054,
     .update_turn_rva = 0x01BA7A64,
@@ -87,7 +92,7 @@ constexpr ServerLayout kGogServer{
     .exit_state = {.rva = 0x0028CF80, .expected = kExitState},
     .override_velocity = {.rva = 0x00289CB0, .expected = kOverrideVelocity},
     .write = {.rva = 0x001E9B00, .expected = kWrite, .mask = kWriteMask},
-    .deflect = {.rva = 0x0028B5E0, .expected = kDeflect},
+    .melee_contact = {.rva = 0x0028B5E0, .expected = kMeleeContact},
     .host_turn_rva = 0x01BA9C4C,
     .destination_rva = 0x01BA9C2C,
     .move_history_rva = 0x01AD9EB0,

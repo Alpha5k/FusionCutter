@@ -13,9 +13,10 @@ struct ClientLayout {
     NativeSite<16> setup_pose;
     NativeSite<16> override_controls;
     NativeSite<16> override_velocity;
-    NativeSite<13> sound_play;
     NativeSite<5> player_move_parsed;
-    NativeSite<16> deflect;
+    NativeSite<16> melee_contact;
+    NativeSite<16> jump;
+    NativeSite<16> roll;
     std::uint32_t host_turn_rva;
     std::uint32_t client_turn_rva;
     std::uint32_t update_turn_rva;
@@ -38,7 +39,7 @@ struct ServerLayout {
     NativeSite<16> exit_state;
     NativeSite<16> override_velocity;
     NativeSite<12> write;
-    NativeSite<16> deflect;
+    NativeSite<16> melee_contact;
     std::uint32_t host_turn_rva;
     std::uint32_t destination_rva;
     std::uint32_t move_history_rva;

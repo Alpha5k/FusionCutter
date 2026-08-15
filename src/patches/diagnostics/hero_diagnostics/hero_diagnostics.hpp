@@ -31,31 +31,38 @@ class HeroDiagnostics final : public RuntimePatch, public StatusContributor {
     [[nodiscard]] HeroSubject* find_player(int player) noexcept;
     [[nodiscard]] HeroSubject* find_animator(const void* animator) noexcept;
     [[nodiscard]] HeroSubject* find_soldier(const void* soldier) noexcept;
-    [[nodiscard]] HeroSubject* active_transition_subject() noexcept;
     [[nodiscard]] trace::TurnContext turn_context() const noexcept;
     [[nodiscard]] std::uint16_t transition_flags(const void* weapon, const trace::TurnContext& turn) const noexcept;
     [[nodiscard]] std::uint32_t state_fingerprint(const HeroSubject& subject) const noexcept;
+    [[nodiscard]] trace::LocomotionState locomotion_state(const void* soldier) const noexcept;
     void announce(HeroSubject& subject) noexcept;
-    void submit(trace::RecordKind kind, std::span<const std::byte> payload, const HeroSubject& subject,
+    // Guarantees that a subject declaration precedes every record that references it.
+    void submit(trace::RecordKind kind, std::span<const std::byte> payload, HeroSubject& subject,
                 std::uint16_t flags = trace::RecordFlags::None) noexcept;
     [[nodiscard]] std::uint32_t begin_read_scope() noexcept;
     void end_read_scope(std::uint32_t previous) noexcept;
     [[nodiscard]] std::uint32_t current_read_scope() const noexcept;
     [[nodiscard]] std::uint32_t next_scope() noexcept;
     // Receives the shared melee boundaries without owning duplicate detours.
-    void begin_update(void* weapon, float delta, const hero_melee_pipeline::UpdateDecision& decision) noexcept;
-    void finish_update(void* weapon, float delta, bool native_called, bool result) noexcept;
-    void begin_network_state(void* weapon, int state, bool flag,
-                             const hero_melee_pipeline::NetworkStateDecision& decision) noexcept;
+    void begin_update(void* weapon, float requested_delta, float effective_delta,
+                      hero_melee_pipeline::MeleeUpdateMode mode) noexcept;
+    void finish_update(void* weapon, float requested_delta, float effective_delta, bool native_called,
+                       bool result) noexcept;
+    void begin_network_state(void* weapon, int state, bool flag, hero_melee_pipeline::NetworkStateMode mode) noexcept;
     void finish_network_state(void* weapon, int state, bool flag, bool native_called) noexcept;
     void begin_enter_state(void* weapon, int state) noexcept;
     void finish_enter_state(void* weapon, int state) noexcept;
     void begin_animator_state(void* animator, std::uint32_t state, std::uint32_t active, std::uint32_t primary,
                               std::uint32_t secondary) noexcept;
     void finish_animator_state(void* animator, std::uint32_t state, std::uint32_t active, std::uint32_t primary,
-                               std::uint32_t secondary, bool suppressed) noexcept;
+                               std::uint32_t secondary) noexcept;
+    void observe_transition_sound(const hero_melee_pipeline::TransitionSound& sound) noexcept;
     void observe_input_queue(const MidHookContext& context, bool after) noexcept;
     void observe_prediction_transition(const MidHookContext& context, bool after) noexcept;
+    void observe_locomotion(HeroSubject& subject) noexcept;
+    void record_locomotion(HeroSubject& subject, trace::LocomotionOperation operation,
+                           const trace::LocomotionState& before, const trace::LocomotionState& after,
+                           bool result) noexcept;
 
   private:
     using GetJoystickIndex = SubjectTable::GetJoystickIndex;

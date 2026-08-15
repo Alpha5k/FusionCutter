@@ -10,7 +10,7 @@
 
 namespace fusioncutter::patches::network_diagnostics::trace {
 
-inline constexpr std::uint32_t kSchemaVersion = 5;
+inline constexpr std::uint32_t kSchemaVersion = 6;
 
 enum class RecordKind : std::uint16_t {
     ClientFrame = 1,
@@ -114,6 +114,11 @@ enum class OutputPacingOutcome : std::uint8_t {
     LifecycleDiscard = 5,
     ModeTransition = 6,
     CapacityExceeded = 7,
+};
+
+enum class DamageKind : std::uint8_t {
+    Direct = 1,
+    Impact = 2,
 };
 
 #pragma pack(push, 1)
@@ -376,6 +381,7 @@ struct ProjectileSimulationRecord {
 
 struct DamageRecord {
     std::uint32_t damageable;
+    std::uint32_t source;
     std::uint32_t descriptor;
     std::uint32_t projectile;
     std::uint32_t projectile_id;
@@ -384,8 +390,9 @@ struct DamageRecord {
     float health_after;
     float shield_before;
     float shield_after;
-    std::uint32_t alive_after;
-    std::uint32_t reserved;
+    DamageKind kind{};
+    std::uint8_t result{};
+    std::uint16_t reserved{};
     std::uint64_t duration;
 };
 

@@ -10,7 +10,7 @@
 
 namespace fusioncutter::patches::hero_diagnostics::trace {
 
-inline constexpr std::uint32_t kSchemaVersion = 2;
+inline constexpr std::uint32_t kSchemaVersion = 5;
 
 enum class RecordKind : std::uint16_t {
     Subject = 1,
@@ -22,8 +22,8 @@ enum class RecordKind : std::uint16_t {
     NetworkMovement = 7,
     PresentationFrame = 8,
     MeleeContact = 9,
-    Deflection = 10,
     AudioCue = 11,
+    Locomotion = 12,
 };
 
 enum RecordFlags : std::uint16_t {
@@ -71,6 +71,12 @@ enum class NetworkStateOperation : std::uint8_t {
     Write = 3,
 };
 
+enum class LocomotionOperation : std::uint8_t {
+    Snapshot = 1,
+    Jump = 2,
+    Roll = 3,
+};
+
 enum PresentationStatus : std::uint8_t {
     PresentationNormal = 0,
     PresentationSuppressed = 1U << 0U,
@@ -109,6 +115,7 @@ struct SubjectRecord {
 struct MeleeTickRecord {
     TurnContext turn;
     float delta;
+    float effective_delta;
     float state_time_before;
     float state_time_after;
     float input_time_before;
@@ -149,6 +156,7 @@ struct NetworkStateRecord {
     std::uint16_t action{};
     std::uint8_t state_flags{};
     std::uint8_t set_flag{};
+    std::uint8_t decision{};
     std::uint8_t native_called{};
     NetworkStateOperation operation{};
 };
@@ -221,19 +229,30 @@ struct MeleeContactRecord {
     TurnContext turn;
     std::uint32_t target;
     std::uint32_t filter;
-    std::array<float, 3> position;
-    std::int32_t state{-1};
-    std::uint32_t state_fingerprint;
-};
-
-struct DeflectionRecord {
-    TurnContext turn;
-    std::uint32_t target;
     std::array<float, 3> input_position;
     std::array<float, 3> output_position;
     std::int32_t state{-1};
+    std::uint32_t state_fingerprint;
     std::uint8_t result{};
     std::array<std::uint8_t, 3> reserved{};
+};
+
+struct LocomotionState {
+    std::int32_t state{-1};
+    float energy;
+    std::uint32_t energy_flags;
+    std::uint8_t movement_flags{};
+    std::array<std::uint8_t, 3> reserved{};
+};
+
+struct LocomotionRecord {
+    TurnContext turn;
+    LocomotionState before;
+    LocomotionState after;
+    std::uint32_t soldier;
+    LocomotionOperation operation{};
+    std::uint8_t result{};
+    std::array<std::uint8_t, 2> reserved{};
 };
 
 struct AudioCueRecord {
@@ -267,7 +286,7 @@ static_assert(kValidPayload<MovementFrameRecord>);
 static_assert(kValidPayload<NetworkMovementRecord>);
 static_assert(kValidPayload<PresentationFrameRecord>);
 static_assert(kValidPayload<MeleeContactRecord>);
-static_assert(kValidPayload<DeflectionRecord>);
+static_assert(kValidPayload<LocomotionRecord>);
 static_assert(kValidPayload<AudioCueRecord>);
 
 } // namespace fusioncutter::patches::hero_diagnostics::trace
