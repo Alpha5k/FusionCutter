@@ -1,86 +1,157 @@
-# Contributing to Fusion Cutter
+# Contributing to FusionCutter
 
-Thank you for helping improve Fusion Cutter. The project values readable, reviewable native code over clever or highly generalized implementations.
+This guide covers the development workflow for FusionCutter: setting up the repository, building the project, running
+tests, and validating a change. See [STYLE_GUIDE.md](docs/STYLE_GUIDE.md) for source formatting, naming, and comments,
+and [DESIGN_PRINCIPLES.md](docs/DESIGN_PRINCIPLES.md) for project-wide design guidance.
 
-## Core requirements
+Changes to supported behavior, public interfaces, or architectural boundaries should be discussed before
+implementation.
 
-These requirements govern implementation and review throughout the repository.
+## Requirements
 
-- Apply the project priorities in order: human readability and maintainability, coverage and expandability, safety, performance, then simplicity.
-- Preserve the source ownership boundaries: `src/` contains only `core/`, `loaders/`, and `patches/`. Place shared code with the responsibility that owns it.
-- Treat a changed or unknown binary as unsupported until it has a reviewed layout. Recognize targets through fixed metadata and validate every native site used by a selected patch.
-- Build thin loaders around one shared core. Universal x86 and x64 cores are the default; role-specific cores are filtered builds of the same source and ABI.
-- Implement features as compiled source patches with stable identities and explicit catalog construction. Use the generated compile-time catalog as the sole patch registration and discovery mechanism. Keep one logical identity for target-specific variants of the same feature.
-- Keep patch-private addresses, preimages, ABI assumptions, validation, and runtime behavior with the owning patch. Register each patch through its `patch.cmake` manifest and `PatchDefinition`.
-- Route every installation write and hook through the core patching operations so validation, range ownership, conflict detection, commit, rollback, memory protection, and instruction-cache handling remain coordinated.
-- Keep initialization and runtime flow visible and bounded, with substantial initialization outside the Windows loader lock. Resolve configuration and patch selection during startup, then keep installed patches and runtime services active for the process lifetime.
-- Keep failures local to the affected patch and its dependents. Promote startup-required or rollback failures to fatal, and preserve unrelated successful patches.
-- Add a shared abstraction only when a demonstrated project requirement makes recurring behavior safer or clearer.
-- Keep configuration, reporting, status, and mandatory crash capture core-owned. Patches contribute typed metadata, lifecycle behavior, log events, and bounded status snapshots.
-- Use C++23, CMake 3.28+, Visual Studio 2022/v143, and the static CRT. Pin reviewed dependencies under `vendor/` and expose vendor functionality through project-owned adapters and interfaces.
-- Focus tests on safety, consequential shared or complex behavior, artifact boundaries, boundedness, and reproduced defects. Keep all correctness checks runnable locally.
-- Preserve the loader seams: one optional DirectInput chain, the RconServer shim, and the Classic Collection `GameWinMain` proxy. Keep crash capture in process and produce the core-owned human-readable text report.
+- Windows
+- Visual Studio 2022 with the MSVC v143 x86 and x64 toolsets and a Windows SDK
+- CMake 3.28 or newer
+- Git
+- clang-format 22 for C or C++ changes
 
-## Repository expectations
+FusionCutter uses C++23. The checked-in CMake presets provide the supported compiler, architecture, runtime-library,
+and warning configuration.
 
-- Keep each change focused and preserve unrelated work.
-- Treat `vendor/`, generated build output, and staged files under `dist/` as read-only inputs or outputs of their owning workflows.
+## Set up the repository
 
-## Formatting
+Clone the repository with its pinned submodules:
 
-The checked-in formatting files are the mechanical sources of truth:
+```powershell
+git clone --recurse-submodules https://github.com/Alpha5k/FusionCutter.git
+cd FusionCutter
+```
 
-- `.clang-format` defines C and C++ layout and requires clang-format major version 22.
-- `.editorconfig` defines editor-visible whitespace, encoding, indentation, and line endings.
-- `.gitattributes` normalizes committed text files.
+For an existing checkout, initialize or update the submodules before configuring:
 
-Format project-owned C and C++ files, then verify them with:
+```powershell
+git submodule update --init --recursive
+```
+
+Vendored dependencies are kept under `vendor/` and must remain usable offline. Do not modify or replace them as part of
+an unrelated change.
+
+## Build the project
+
+FusionCutter provides separate Visual Studio presets for each supported architecture:
+
+| Architecture | Preset |
+| --- | --- |
+| x86 | `vs2022-x86` |
+| x64 | `vs2022-x64` |
+
+Configure and build the architecture needed by your change:
+
+```powershell
+cmake --preset vs2022-x86 -DBUILD_TESTING=ON
+cmake --build --preset vs2022-x86 --config Debug
+```
+
+`BUILD_TESTING` controls whether the test targets are configured. Use `vs2022-x64` for the x64 build. `Debug` is
+intended for development; use `RelWithDebInfo` for an optimized build with symbols:
+
+```powershell
+cmake --build --preset vs2022-x86 --config RelWithDebInfo
+```
+
+Build one target while iterating with:
+
+```powershell
+cmake --build --preset vs2022-x86 --config Debug --target <target>
+```
+
+Changes to shared code, the public SDK, or the C ABI should be built for both architectures. Build output remains under
+the selected preset's `build/` directory; project targets must not write directly into a game installation.
+
+## Install and test a local build
+
+For runtime testing, copy the matching `FusionCutter.dll`, loader, and any external plugin DLLs from the
+architecture-specific build output into a separate test installation. External plugins belong in the `plugins`
+directory beside `FusionCutter.dll`.
+
+| Target | Loader |
+| --- | --- |
+| GameSpy, Steam, GOG, or Mod Tools client | x86 `dinput8.dll` |
+| GameSpy, Steam, or GOG server | x86 `RconServer_32.dll` |
+| Classic Collection client | x64 `Battlefront2.dll` |
+| Classic Collection server | x64 `RconServer_64.dll` |
+
+For a Classic Collection client, preserve the original `Battlefront2.dll` as `Battlefront2.original.dll` before
+installing the proxy. Keep generated configuration, status, logs, traces, and proprietary game files out of the
+repository.
+
+## Run the tests
+
+Project tests use Catch2 and are run through CTest. CTest runs tests that have already been built; its `-C` value must
+match the configuration passed to `cmake --build`.
+
+| Label | Intended use |
+| --- | --- |
+| `fast` | Unit and component tests run during ordinary development |
+| `integration` | DLL, loader, native, plugin, runtime, and process-boundary tests |
+| `images` | Target recognition and supported-image validation using local reviewed binaries |
+
+Run the fast suite for the affected architecture during normal development:
+
+```powershell
+ctest --test-dir build/vs2022-x86 -C Debug -L fast --output-on-failure
+```
+
+Run one matching test or component while iterating with:
+
+```powershell
+ctest --test-dir build/vs2022-x86 -C Debug -R <pattern> --output-on-failure
+```
+
+Run integration tests when a change affects DLL loading, plugins, loaders, native memory, patch installation, runtime
+behavior, or another process boundary:
+
+```powershell
+ctest --test-dir build/vs2022-x86 -C Debug -L integration --output-on-failure
+```
+
+Run all tests registered for a build with:
+
+```powershell
+ctest --test-dir build/vs2022-x86 -C Debug --output-on-failure
+```
+
+Replace the preset directory with `build/vs2022-x64` when testing x64. Changes to shared code, the SDK, or the C ABI
+should run the relevant suites for both architectures.
+
+Tests labeled `images` require locally configured, reviewed game binaries. These binaries must never be committed.
+Image tests are normally required only when changing target recognition, native locations, evidence, or supported-image
+behavior.
+
+### Adding tests
+
+Add or update a test when a change affects consequential behavior, a stable public boundary, a native or process
+boundary, or a defect likely to recur. Prefer extending an existing table, fixture, or end-to-end slice over creating a
+new test executable or fixture for each variation. Tests should exercise production paths rather than reproduce their
+logic in test-only code.
+
+## Format source code
+
+Format project-owned C and C++ and then verify the result:
 
 ```powershell
 ./tools/format.ps1
 ./tools/format.ps1 -Check
 ```
 
-The script covers project-owned files and leaves vendored, generated, and distribution files unchanged.
+The script requires clang-format major version 22. Formatting and other source conventions are defined in
+[STYLE_GUIDE.md](docs/STYLE_GUIDE.md).
 
-Use the formatter, editor integration, automation, and review to enforce formatting and naming conventions. Reserve build, catalog, runtime, and test rejection for text that must be parsed, generated, compiled, or otherwise consumed correctly.
+## Before handing off a change
 
-## Rules beyond the formatter
-
-| Construct | Convention | Example |
-|---|---|---|
-| Types and enum members | `PascalCase` | `TargetContext` |
-| Functions, variables, and namespaces | `snake_case` | `build_plan` |
-| Private data members | trailing-underscore `snake_case_` | `runtime_state_` |
-| Constants | `kPascalCase` | `kMaximumReportSize` |
-| Files and directories | `snake_case` | `direct_transport.cpp` |
-| C ABI declarations | project `FC_` spelling | `FC_INIT_FATAL` |
-| Project macros | `FC_UPPER_SNAKE_CASE` | `FC_LOG_ERROR` |
-
-- Give C++ headers the `.hpp` extension and C-compatible boundary headers the `.h` extension. Use `#pragma once`. Group closely related small declarations when that keeps the interface clear, and split files along meaningful responsibilities.
-- Keep public declarations in `include/FusionCutter/<component>.hpp`. Keep small template implementations with the public interface; place substantial template implementation in `include/FusionCutter/templates/<component>.hpp` and include it from the public header.
-- Include the corresponding header first, followed by project, third-party, platform, and standard-library groups. Include what the file directly uses and preserve required platform ordering, such as `WinSock2.h` before `Windows.h`.
-- Treat replacement of inline assembly, naked functions, custom trampolines, or manual stack handling as an ABI change. Verify the replacement against both the original implementation and target machine code.
-- Document every significant project-owned class or service and each nontrivial function that represents a distinct framework phase, feature step, lifecycle action, native integration point, protocol operation, concurrency boundary, or safety boundary. Put a short role comment above its declaration, or above its definition when it has no separate declaration. A reader should be able to scan the declarations and understand the component's responsibilities and flow without reading every function body.
-- Document public SDK and plugin-boundary APIs with the purpose and any non-obvious ownership, lifetime, threading, or failure contract an author needs to use them correctly. Keep that contract with the public declaration.
-- Simple constructors, destructors, accessors, direct forwarding functions, and self-evident value conversions do not need individual comments. Closely related trivial declarations may share one group comment.
-- Use role comments to summarize what code contributes to the patch or game behavior. Use inline comments to explain why: reverse-engineered behavior, the defect being fixed, ABI or layout assumptions, safety constraints, and non-obvious decisions. Keep comments concise and avoid narrating statements line by line.
-- Explain state whose units, ownership, synchronization, or invariants are not clear from its name and type. Keep the explanation near the declaration it governs.
-- Prefer short comments that make nearby code easier to read. Do not repeat identifiers in sentence form or paste large design explanations beside ordinary code; put genuinely long reasoning in a focused design or reverse-engineering document.
-- Keep comments current as behavior changes. Treat an inaccurate comment as a defect.
-- Reserve `clang-format off/on` for a narrow native byte, instruction, or layout representation whose readability depends on its manual layout, and state that reason beside the directive.
-- Prefer C++23 language and standard-library facilities when they provide equivalent behavior and safety. Use custom implementations for measured hot paths and constrained native or crash-reporting work where they provide a concrete benefit.
-- Write idiomatic modern C++ and use RAII. Use C-style constructs at C ABI, native interface, and binary-layout boundaries where the constraint requires them.
-- Treat duplicated logic, deeply nested control flow, and large multi-responsibility functions or structures as review signals. Refactor when the result is measurably easier to understand while preserving correctness, safety, native compatibility, and required performance.
-- Prefer explicit ownership and visible control flow. Use a wrapper when it makes recurring complex behavior safer or clearer.
-- Represent expected target, configuration, resource, and network failures with explicit results. Use assertions for programmer invariants. Contain exceptions within internal implementation and translate them before ABI or host entry points. Use SEH only for a narrow, documented expected-fault scope with a safe fallback.
-- Keep hook and game-thread callbacks `noexcept`, bounded, and prepared before activation. Limit them to bounded in-memory work; place file I/O, blocking waits, recurring lookup, and other independently paced work in prepared patch-owned services.
-
-## Before submitting a change
-
-- Run `./tools/format.ps1 -Check`.
-- Build the affected architecture, role, and configuration with the checked-in CMake presets.
-- Run the most focused available tests that cover the change.
-- For every new or materially changed component, review its declarations, public contracts, nontrivial entry points, and important state for the required comments.
-- Document any validation that could not be performed.
-- Update user or contributor documentation when behavior or supported usage changes.
+- Keep the change focused and preserve unrelated work.
+- Run the formatting check for C or C++ changes.
+- Build every affected architecture and configuration.
+- Run the smallest relevant tests, plus any affected integration or image tests.
+- Update documentation when behavior, public interfaces, or contributor workflow changes.
+- State any validation that could not be performed.

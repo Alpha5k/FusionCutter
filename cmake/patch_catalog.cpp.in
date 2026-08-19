@@ -1,9 +1,0 @@
-#include "generated_catalog.hpp"
-@FC_PATCH_DECLARATIONS@
-namespace fusioncutter::catalog {
-
-std::vector<CatalogEntry> generated_catalog_entries() {
-    return {@FC_PATCH_ENTRIES@};
-}
-
-} // namespace fusioncutter::catalog

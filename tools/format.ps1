@@ -45,7 +45,7 @@ function Find-ClangFormat {
 }
 
 function Get-ProjectSourceFiles {
-    $source_roots = @("include", "src", "tests", "tools")
+    $source_roots = @("include", "sdk", "src", "plugins", "tests", "tools")
     $source_extensions = @(".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hxx", ".inl")
     $files = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
 

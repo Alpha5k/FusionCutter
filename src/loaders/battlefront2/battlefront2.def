@@ -1,4 +1,0 @@
-LIBRARY Battlefront2
-
-EXPORTS
-    GameWinMain @1

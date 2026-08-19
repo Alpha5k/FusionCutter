@@ -9,24 +9,9 @@ function(fc_initialize_build)
 
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" PARENT_SCOPE)
 
-    set(FC_CORE_ROLE "Universal" CACHE STRING "Roles compiled into FusionCutter.dll")
-    set_property(CACHE FC_CORE_ROLE PROPERTY STRINGS Universal Client Server)
-
     set(FC_WARNINGS_AS_ERRORS OFF CACHE BOOL "Treat warnings in project-owned source as errors")
     set(FC_VERSION_STRING "development" CACHE STRING "Version written to Fusion Cutter diagnostics")
     set(FC_BUILD_ID "local" CACHE STRING "Stable identifier used to match diagnostics to developer symbols")
-
-    if(FC_CORE_ROLE STREQUAL "Universal")
-        set(core_role_mask 3)
-    elseif(FC_CORE_ROLE STREQUAL "Client")
-        set(core_role_mask 1)
-    elseif(FC_CORE_ROLE STREQUAL "Server")
-        set(core_role_mask 2)
-    else()
-        message(FATAL_ERROR "FC_CORE_ROLE must be Universal, Client, or Server.")
-    endif()
-
-    set(FC_CORE_ROLE_MASK ${core_role_mask} CACHE INTERNAL "Roles compiled into FusionCutter.dll" FORCE)
 
     if(CMAKE_SIZEOF_VOID_P EQUAL 4)
         set(FC_ARCHITECTURE "x86" CACHE INTERNAL "Fusion Cutter target architecture")
@@ -37,7 +22,6 @@ function(fc_initialize_build)
     endif()
 
     message(STATUS "Fusion Cutter architecture: ${FC_ARCHITECTURE}")
-    message(STATUS "Fusion Cutter core role: ${FC_CORE_ROLE}")
 endfunction()
 
 function(fc_configure_project_target target)
@@ -72,10 +56,6 @@ function(fc_configure_project_target target)
     if(FC_WARNINGS_AS_ERRORS)
         target_compile_options(${target} PRIVATE /WX)
     endif()
-endfunction()
-
-function(fc_configure_core_role target)
-    target_compile_definitions(${target} PRIVATE FC_CORE_SUPPORTED_ROLE_MASK=${FC_CORE_ROLE_MASK})
 endfunction()
 
 function(fc_set_artifact_directories target)

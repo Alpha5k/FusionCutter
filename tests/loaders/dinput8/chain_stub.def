@@ -1,4 +1,0 @@
-LIBRARY dinput8_chain_stub
-
-EXPORTS
-    DirectInput8Create=_FC_Test_DirectInput8Create@20 @1

@@ -13,8 +13,7 @@
             "toolset": "v143",
             "binaryDir": "${sourceDir}/build/${presetName}",
             "cacheVariables": {
-                "CMAKE_CONFIGURATION_TYPES": "Debug;RelWithDebInfo",
-                "FC_CORE_ROLE": "Universal"
+                "CMAKE_CONFIGURATION_TYPES": "Debug;RelWithDebInfo"
             }
         },
         {
