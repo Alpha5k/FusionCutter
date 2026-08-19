@@ -15,6 +15,7 @@ struct PipelineLayout {
     std::uint32_t intake_rva;
     std::uint32_t disconnect_rva;
     std::uint32_t reset_rva;
+    std::uint32_t client_receive_rva;
 };
 
 inline constexpr auto kFinalSendPreimage =
@@ -28,6 +29,7 @@ inline constexpr auto kDisconnectPreimage =
     byte_array<0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8, 0x51, 0x53, 0x8B, 0xD9, 0xB9>();
 inline constexpr auto kResetPreimage =
     byte_array<0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8, 0x83, 0xEC, 0x08, 0x53, 0x56, 0x8A, 0xD9>();
+inline constexpr auto kClientReceivePreimage = byte_array<0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x94, 0x00, 0x00, 0x00>();
 
 inline constexpr PipelineLayout kGogLayout{
     .final_send_rva = 0x0021'8EC0,
@@ -36,6 +38,7 @@ inline constexpr PipelineLayout kGogLayout{
     .intake_rva = 0x001B'4240,
     .disconnect_rva = 0x001B'3A90,
     .reset_rva = 0x001B'33D0,
+    .client_receive_rva = 0x001B'9F20,
 };
 
 inline constexpr PipelineLayout kSteamLayout{
@@ -45,6 +48,7 @@ inline constexpr PipelineLayout kSteamLayout{
     .intake_rva = 0x001B'3290,
     .disconnect_rva = 0x001B'2AF0,
     .reset_rva = 0x001B'2430,
+    .client_receive_rva = 0x001B'8F70,
 };
 
 [[nodiscard]] inline constexpr const PipelineLayout& layout_for(TargetLayout target) noexcept {

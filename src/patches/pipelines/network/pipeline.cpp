@@ -6,6 +6,8 @@
 #include <Windows.h>
 
 #include <atomic>
+#include <chrono>
+#include <utility>
 
 namespace fusioncutter::patches::network_pipeline {
 namespace {
@@ -24,11 +26,14 @@ OriginalFunction<ReceiveFunction> gReceiveOriginal;
 OriginalFunction<IntakeFunction> gIntakeOriginal;
 OriginalFunction<DisconnectFunction> gDisconnectOriginal;
 OriginalFunction<ResetFunction> gResetOriginal;
+OriginalFunction<ReceiveFunction> gClientReceiveOriginal;
 thread_local int gTransmitGroupPrimary = -1;
 thread_local bool gDirectIntake{};
+std::uint64_t gClientReceiveSequence{};
 #if defined(FC_NETWORK_PIPELINE_ABI_TEST)
 RawFunction gFinalSendTestOriginal{};
 RawFunction gGroupSendTestOriginal{};
+ReceiveFunction gClientReceiveTestOriginal{};
 #endif
 
 [[nodiscard]] RawFunction final_send_original() noexcept {
@@ -47,6 +52,21 @@ RawFunction gGroupSendTestOriginal{};
     }
 #endif
     return gGroupSendOriginal.get();
+}
+
+[[nodiscard]] ReceiveFunction client_receive_original() noexcept {
+#if defined(FC_NETWORK_PIPELINE_ABI_TEST)
+    if (gClientReceiveTestOriginal != nullptr) {
+        return gClientReceiveTestOriginal;
+    }
+#endif
+    return gClientReceiveOriginal.get();
+}
+
+[[nodiscard]] std::uint64_t timestamp_ns() noexcept {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
+            .count());
 }
 
 // Restores the caller's Win32 and Winsock errors after patch callbacks return.
@@ -194,6 +214,37 @@ void __cdecl hook_receive() noexcept {
     outgoing_errors.restore();
 }
 
+// Publishes the exact client transaction that selects and applies complete server updates.
+void __cdecl hook_client_receive() noexcept {
+    const auto incoming_errors = LastErrors::capture();
+    ClientReceiveBoundary boundary{
+        .sequence = ++gClientReceiveSequence,
+        .start_ns = timestamp_ns(),
+    };
+    const auto* transport = gTransport.load(std::memory_order_acquire);
+    const auto* diagnostics = gDiagnostics.load(std::memory_order_acquire);
+    if (diagnostics != nullptr && diagnostics->client_receive != nullptr) {
+        diagnostics->client_receive(diagnostics->context, boundary, true);
+    }
+    if (transport != nullptr && transport->client_receive != nullptr) {
+        transport->client_receive(transport->context, boundary, true);
+    }
+
+    incoming_errors.restore();
+    if (const auto original = client_receive_original(); original != nullptr) {
+        original();
+    }
+    const auto outgoing_errors = LastErrors::capture();
+    boundary.completion_ns = timestamp_ns();
+    if (transport != nullptr && transport->client_receive != nullptr) {
+        transport->client_receive(transport->context, boundary, false);
+    }
+    if (diagnostics != nullptr && diagnostics->client_receive != nullptr) {
+        diagnostics->client_receive(diagnostics->context, boundary, false);
+    }
+    outgoing_errors.restore();
+}
+
 // Preserves native intake before publishing the packet and endpoint observations.
 void __fastcall hook_intake(void* packet, void* endpoint) noexcept {
     if (const auto original = gIntakeOriginal.get(); original != nullptr) {
@@ -251,7 +302,7 @@ void __fastcall hook_reset(int mode) noexcept {
 
 } // namespace
 
-NetworkPipeline::NetworkPipeline(const TargetContext& target) noexcept : target_(target.layout) {}
+NetworkPipeline::NetworkPipeline(const TargetContext& target) noexcept : target_(target.layout), role_(target.role) {}
 
 void NetworkPipeline::build_plan(PatchPlan& plan) {
     const auto& layout = layout_for(target_);
@@ -269,6 +320,11 @@ void NetworkPipeline::build_plan(PatchPlan& plan) {
                                                          BytePattern::exact(kDisconnectPreimage), &hook_disconnect);
     gResetOriginal = plan.inline_hook_with_original("Observe native network reset", layout.reset_rva,
                                                     BytePattern::exact(kResetPreimage), &hook_reset);
+    if (role_ == HostRole::Client) {
+        gClientReceiveOriginal =
+            plan.inline_hook_with_original("Observe client update drains", layout.client_receive_rva,
+                                           BytePattern::exact(kClientReceivePreimage), &hook_client_receive);
+    }
 }
 
 void publish_transport(const TransportCallbacks& callbacks) noexcept {
@@ -335,15 +391,25 @@ void submit_native(void* packet, void* endpoint) noexcept {
 }
 
 #if defined(FC_NETWORK_PIPELINE_ABI_TEST)
-void configure_hooks_for_test(const TransportCallbacks& transport, const HookOriginals& originals) noexcept {
+void configure_hooks_for_test(const TransportCallbacks& transport, const DiagnosticsCallbacks& diagnostics,
+                              const HookOriginals& originals) noexcept {
     gFinalSendTestOriginal = reinterpret_cast<RawFunction>(originals.final_send);
     gGroupSendTestOriginal = reinterpret_cast<RawFunction>(originals.group_send);
+    gClientReceiveTestOriginal = reinterpret_cast<ReceiveFunction>(originals.client_receive);
     publish_transport(transport);
+    publish_diagnostics(diagnostics);
 }
 
 void* hook_for_test(HookPoint point) noexcept {
-    return point == HookPoint::FinalSend ? reinterpret_cast<void*>(&hook_final_send)
-                                         : reinterpret_cast<void*>(&hook_group_send);
+    switch (point) {
+    case HookPoint::FinalSend:
+        return reinterpret_cast<void*>(&hook_final_send);
+    case HookPoint::GroupSend:
+        return reinterpret_cast<void*>(&hook_group_send);
+    case HookPoint::ClientReceive:
+        return reinterpret_cast<void*>(&hook_client_receive);
+    }
+    std::unreachable();
 }
 #endif
 

@@ -166,6 +166,12 @@ network_pipeline::DiagnosticsCallbacks make_pipeline_callbacks(NetworkDiagnostic
             [](void* context, const network_pipeline::OutputPacingObservation& observation) noexcept {
                 diagnostics_from(context).observe_output_pacing(observation);
             },
+#if !defined(FC_PATCH_BUILD_ROLE_MASK) || (FC_PATCH_BUILD_ROLE_MASK & 1) != 0
+        .client_receive =
+            [](void* context, const network_pipeline::ClientReceiveBoundary& boundary, bool begin) noexcept {
+                observe_client_receive(diagnostics_from(context), boundary, begin);
+            },
+#endif
     };
 }
 

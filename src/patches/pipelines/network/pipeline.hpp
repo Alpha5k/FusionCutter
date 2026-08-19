@@ -74,6 +74,13 @@ struct OutputPacingObservation {
     std::uint64_t release_ns;
 };
 
+// Identifies one native client transaction that selects and applies complete server updates.
+struct ClientReceiveBoundary {
+    std::uint64_t sequence;
+    std::uint64_t start_ns;
+    std::uint64_t completion_ns;
+};
+
 // Connects the shared game hooks to one role-specific transport implementation.
 struct TransportCallbacks {
     void* context;
@@ -87,9 +94,10 @@ struct TransportCallbacks {
     void (*disconnect)(void*, int) noexcept;
     void (*disconnect_complete)(void*, int) noexcept;
     void (*reset)(void*, std::uint8_t) noexcept;
+    void (*client_receive)(void*, const ClientReceiveBoundary&, bool) noexcept;
 };
 
-// Supplies the fixed diagnostic observations emitted by the six shared hooks.
+// Supplies the fixed diagnostic observations emitted by the shared network hooks.
 struct DiagnosticsCallbacks {
     void* context;
     void (*group)(void*, int, bool) noexcept;
@@ -101,6 +109,7 @@ struct DiagnosticsCallbacks {
     void (*direct_association)(void*, const DirectAssociationObservation&) noexcept;
     void (*direct_receive)(void*, const DirectReceiveObservation&) noexcept;
     void (*output_pacing)(void*, const OutputPacingObservation&) noexcept;
+    void (*client_receive)(void*, const ClientReceiveBoundary&, bool) noexcept;
 };
 
 void publish_transport(const TransportCallbacks& callbacks) noexcept;
@@ -125,20 +134,24 @@ class NetworkPipeline final : public Patch {
 
   private:
     TargetLayout target_;
+    HostRole role_;
 };
 
 #if defined(FC_NETWORK_PIPELINE_ABI_TEST)
 enum class HookPoint {
     FinalSend,
     GroupSend,
+    ClientReceive,
 };
 
 struct HookOriginals {
     void* final_send;
     void* group_send;
+    void* client_receive;
 };
 
-void configure_hooks_for_test(const TransportCallbacks& transport, const HookOriginals& originals) noexcept;
+void configure_hooks_for_test(const TransportCallbacks& transport, const DiagnosticsCallbacks& diagnostics,
+                              const HookOriginals& originals) noexcept;
 [[nodiscard]] void* hook_for_test(HookPoint point) noexcept;
 #endif
 

@@ -2,6 +2,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace network_pipeline = fusioncutter::patches::network_pipeline;
@@ -33,6 +35,14 @@ struct TestTransport {
 
 Observation gFinal;
 Observation gGroup;
+std::array<std::uint32_t, 5> gReceiveOrder{};
+std::size_t gReceiveOrderSize{};
+network_pipeline::ClientReceiveBoundary gReceiveBegin{};
+network_pipeline::ClientReceiveBoundary gReceiveEnd{};
+
+void record_receive_step(std::uint32_t step) noexcept {
+    gReceiveOrder[gReceiveOrderSize++] = step;
+}
 
 int __cdecl observe_final(std::uint32_t destination, std::uint32_t bytes, std::uint32_t length) noexcept {
     gFinal = {gFinal.calls + 1, destination, bytes, length};
@@ -41,6 +51,10 @@ int __cdecl observe_final(std::uint32_t destination, std::uint32_t bytes, std::u
 
 void __cdecl observe_group(std::uint32_t destination, std::uint32_t argument, std::uint32_t group) noexcept {
     gGroup = {gGroup.calls + 1, destination, argument, group};
+}
+
+void __cdecl synthetic_client_receive() noexcept {
+    record_receive_step(3);
 }
 
 __declspec(naked) int synthetic_final_send() {
@@ -125,6 +139,26 @@ network_pipeline::TransportCallbacks callbacks_for(TestTransport& transport) noe
         .disconnect = [](void*, int) noexcept {},
         .disconnect_complete = [](void*, int) noexcept {},
         .reset = [](void*, std::uint8_t) noexcept {},
+        .client_receive =
+            [](void*, const network_pipeline::ClientReceiveBoundary& boundary, bool begin) noexcept {
+                if (begin) {
+                    gReceiveBegin = boundary;
+                } else {
+                    gReceiveEnd = boundary;
+                }
+                record_receive_step(begin ? 2 : 4);
+            },
+    };
+}
+
+network_pipeline::DiagnosticsCallbacks diagnostics_callbacks() noexcept {
+    return {
+        .group = [](void*, int, bool) noexcept {},
+        .send = [](void*, int, std::size_t, network_pipeline::PacketCarrier, int) noexcept {},
+        .client_receive =
+            [](void*, const network_pipeline::ClientReceiveBoundary&, bool begin) noexcept {
+                record_receive_step(begin ? 1 : 5);
+            },
     };
 }
 
@@ -138,8 +172,11 @@ network_pipeline::TransportCallbacks callbacks_for(TestTransport& transport) noe
 TEST_CASE("Network Pipeline preserves the game's nonstandard x86 send ABI") {
     TestTransport transport;
     const auto callbacks = callbacks_for(transport);
-    network_pipeline::configure_hooks_for_test(
-        callbacks, {reinterpret_cast<void*>(&synthetic_final_send), reinterpret_cast<void*>(&synthetic_group_send)});
+    const auto diagnostics = diagnostics_callbacks();
+    network_pipeline::configure_hooks_for_test(callbacks, diagnostics,
+                                               {reinterpret_cast<void*>(&synthetic_final_send),
+                                                reinterpret_cast<void*>(&synthetic_group_send),
+                                                reinterpret_cast<void*>(&synthetic_client_receive)});
 
     CallState final_state{};
     invoke_game_send(network_pipeline::hook_for_test(network_pipeline::HookPoint::FinalSend), 17, 0x50607080, 1009,
@@ -163,4 +200,29 @@ TEST_CASE("Network Pipeline preserves the game's nonstandard x86 send ABI") {
     CHECK(transport.groups_started == 1);
     CHECK(transport.groups_ended == 1);
     CHECK(transport.group_type == 0x60708090);
+}
+
+TEST_CASE("Network Pipeline brackets the native client receive transaction") {
+    TestTransport transport;
+    const auto callbacks = callbacks_for(transport);
+    const auto diagnostics = diagnostics_callbacks();
+    network_pipeline::configure_hooks_for_test(callbacks, diagnostics,
+                                               {reinterpret_cast<void*>(&synthetic_final_send),
+                                                reinterpret_cast<void*>(&synthetic_group_send),
+                                                reinterpret_cast<void*>(&synthetic_client_receive)});
+
+    gReceiveOrderSize = 0;
+    gReceiveBegin = {};
+    gReceiveEnd = {};
+    reinterpret_cast<void(__cdecl*)()>(network_pipeline::hook_for_test(network_pipeline::HookPoint::ClientReceive))();
+
+    const std::array<std::uint32_t, 5> expected{1, 2, 3, 4, 5};
+    CHECK(gReceiveOrderSize == gReceiveOrder.size());
+    CHECK(gReceiveOrder == expected);
+    CHECK(gReceiveBegin.sequence != 0);
+    CHECK(gReceiveBegin.start_ns != 0);
+    CHECK(gReceiveBegin.completion_ns == 0);
+    CHECK(gReceiveEnd.sequence == gReceiveBegin.sequence);
+    CHECK(gReceiveEnd.start_ns == gReceiveBegin.start_ns);
+    CHECK(gReceiveEnd.completion_ns >= gReceiveEnd.start_ns);
 }

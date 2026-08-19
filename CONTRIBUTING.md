@@ -61,9 +61,12 @@ Use the formatter, editor integration, automation, and review to enforce formatt
 - Keep public declarations in `include/FusionCutter/<component>.hpp`. Keep small template implementations with the public interface; place substantial template implementation in `include/FusionCutter/templates/<component>.hpp` and include it from the public header.
 - Include the corresponding header first, followed by project, third-party, platform, and standard-library groups. Include what the file directly uses and preserve required platform ordering, such as `WinSock2.h` before `Windows.h`.
 - Treat replacement of inline assembly, naked functions, custom trampolines, or manual stack handling as an ABI change. Verify the replacement against both the original implementation and target machine code.
-- Document each patch-owned class and each nontrivial function that represents a distinct feature step, lifecycle action, native integration point, protocol operation, or safety boundary. Put a short role comment above its declaration, or above its definition when it has no separate declaration. A reader should be able to scan the declarations and understand the patch's major components and flow without reading every function body.
+- Document every significant project-owned class or service and each nontrivial function that represents a distinct framework phase, feature step, lifecycle action, native integration point, protocol operation, concurrency boundary, or safety boundary. Put a short role comment above its declaration, or above its definition when it has no separate declaration. A reader should be able to scan the declarations and understand the component's responsibilities and flow without reading every function body.
+- Document public SDK and plugin-boundary APIs with the purpose and any non-obvious ownership, lifetime, threading, or failure contract an author needs to use them correctly. Keep that contract with the public declaration.
 - Simple constructors, destructors, accessors, direct forwarding functions, and self-evident value conversions do not need individual comments. Closely related trivial declarations may share one group comment.
 - Use role comments to summarize what code contributes to the patch or game behavior. Use inline comments to explain why: reverse-engineered behavior, the defect being fixed, ABI or layout assumptions, safety constraints, and non-obvious decisions. Keep comments concise and avoid narrating statements line by line.
+- Explain state whose units, ownership, synchronization, or invariants are not clear from its name and type. Keep the explanation near the declaration it governs.
+- Prefer short comments that make nearby code easier to read. Do not repeat identifiers in sentence form or paste large design explanations beside ordinary code; put genuinely long reasoning in a focused design or reverse-engineering document.
 - Keep comments current as behavior changes. Treat an inaccurate comment as a defect.
 - Reserve `clang-format off/on` for a narrow native byte, instruction, or layout representation whose readability depends on its manual layout, and state that reason beside the directive.
 - Prefer C++23 language and standard-library facilities when they provide equivalent behavior and safety. Use custom implementations for measured hot paths and constrained native or crash-reporting work where they provide a concrete benefit.
@@ -78,6 +81,6 @@ Use the formatter, editor integration, automation, and review to enforce formatt
 - Run `./tools/format.ps1 -Check`.
 - Build the affected architecture, role, and configuration with the checked-in CMake presets.
 - Run the most focused available tests that cover the change.
-- For a new or materially changed patch, review its declarations and file-local entry points for the required role comments.
+- For every new or materially changed component, review its declarations, public contracts, nontrivial entry points, and important state for the required comments.
 - Document any validation that could not be performed.
 - Update user or contributor documentation when behavior or supported usage changes.

@@ -26,13 +26,12 @@ struct ReceiveDraft {
 
 const client::ClientLayout* gLayout{};
 ImageContext gImage{};
-OriginalFunction<VoidFunction> gReceiveClient;
 OriginalFunction<SubmitMoveFunction> gSubmitMove;
 OriginalFunction<GroupTurnFunction> gGetUpdateTurn;
 OriginalFunction<ReadUpdateFunction> gReadUpdate;
 OriginalFunction<PredictFunction> gPredict;
 OriginalFunction<VoidFunction> gAdjustClock;
-thread_local ReceiveDraft gReceive;
+thread_local ReceiveDraft gClientReceive;
 thread_local std::uint64_t gLastFrame{};
 
 template <typename Value> [[nodiscard]] Value read_global(std::uint32_t rva, Value fallback = {}) noexcept {
@@ -83,35 +82,13 @@ void __cdecl observe_submit_move(int requested) noexcept {
     diagnostics->recorder().submit(trace::RecordKind::MoveSubmission, trace::payload_bytes(record));
 }
 
-// Owns one client update drain and folds candidate and decode observations into it.
-void __cdecl observe_receive_client() noexcept {
-    auto* diagnostics = active_diagnostics();
-    gReceive = {
-        .owner = diagnostics,
-        .record = {.turn_before = read_global<std::int32_t>(gLayout->client_host_turn_rva, -1)},
-        .start = trace::read_stamp(),
-        .active = diagnostics != nullptr,
-    };
-    if (const auto original = gReceiveClient.get(); original != nullptr) {
-        original();
-    }
-    if (!gReceive.active || gReceive.owner == nullptr) {
-        return;
-    }
-    gReceive.record.turn_after = read_global<std::int32_t>(gLayout->client_host_turn_rva, -1);
-    gReceive.record.duration = trace::read_stamp().timestamp - gReceive.start.timestamp;
-    gReceive.owner->recorder().submit(trace::RecordKind::ClientReceivePass, trace::payload_bytes(gReceive.record), 0,
-                                      trace::RecordFlags::End);
-    gReceive.active = false;
-}
-
 // Adds each complete update candidate to the active receive transaction.
 std::uint32_t __cdecl observe_get_update_turn(void* group) noexcept {
     const auto original = gGetUpdateTurn.get();
     const auto turn = original == nullptr ? 0 : original(group);
-    if (gReceive.active) {
-        ++gReceive.record.candidates;
-        gReceive.record.newest_candidate = (std::max)(gReceive.record.newest_candidate, turn);
+    if (gClientReceive.active) {
+        ++gClientReceive.record.candidates;
+        gClientReceive.record.newest_candidate = (std::max)(gClientReceive.record.newest_candidate, turn);
     }
     return turn;
 }
@@ -125,11 +102,11 @@ void __cdecl observe_read_update(void* group) noexcept {
     }
     finish_authoritative_update();
     const auto after = read_global<std::int32_t>(gLayout->client_host_turn_rva, -1);
-    if (gReceive.active) {
+    if (gClientReceive.active) {
         if (after > before) {
-            ++gReceive.record.accepted;
+            ++gClientReceive.record.accepted;
         } else {
-            ++gReceive.record.stale;
+            ++gClientReceive.record.stale;
         }
         return;
     }
@@ -188,13 +165,35 @@ void __cdecl observe_adjust_clock() noexcept {
 } // namespace
 
 void observe_update_recovery(std::uint32_t updates, std::uint32_t oldest_turn, std::uint32_t newest_turn) noexcept {
-    if (gReceive.active) {
-        gReceive.record.recovered += updates;
-        gReceive.record.oldest_recovered = oldest_turn;
-        gReceive.record.newest_recovered = newest_turn;
+    if (gClientReceive.active) {
+        gClientReceive.record.recovered += updates;
+        gClientReceive.record.oldest_recovered = oldest_turn;
+        gClientReceive.record.newest_recovered = newest_turn;
     } else if (auto* diagnostics = active_diagnostics(); diagnostics != nullptr) {
         diagnostics->recorder().omit();
     }
+}
+
+void observe_client_receive(NetworkDiagnostics& diagnostics, const network_pipeline::ClientReceiveBoundary&,
+                            bool begin) noexcept {
+    if (begin) {
+        gClientReceive = {
+            .owner = &diagnostics,
+            .record = {.turn_before = read_global<std::int32_t>(gLayout->client_host_turn_rva, -1)},
+            .start = trace::read_stamp(),
+            .active = true,
+        };
+        return;
+    }
+    if (!gClientReceive.active || gClientReceive.owner != &diagnostics) {
+        diagnostics.recorder().omit();
+        return;
+    }
+    gClientReceive.record.turn_after = read_global<std::int32_t>(gLayout->client_host_turn_rva, -1);
+    gClientReceive.record.duration = trace::read_stamp().timestamp - gClientReceive.start.timestamp;
+    diagnostics.recorder().submit(trace::RecordKind::ClientReceivePass, trace::payload_bytes(gClientReceive.record), 0,
+                                  trace::RecordFlags::End);
+    gClientReceive.active = false;
 }
 
 void build_client_plan(PatchPlan& plan, const TargetContext& target) {
@@ -204,8 +203,6 @@ void build_client_plan(PatchPlan& plan, const TargetContext& target) {
                   &observe_game_frame);
     gSubmitMove = plan.inline_hook_with_original("Observe client move submission", gLayout->submit_move.rva,
                                                  gLayout->submit_move.pattern(), &observe_submit_move);
-    gReceiveClient = plan.inline_hook_with_original("Observe client update drains", gLayout->receive_client.rva,
-                                                    gLayout->receive_client.pattern(), &observe_receive_client);
     gGetUpdateTurn = plan.inline_hook_with_original("Observe complete update candidates", gLayout->get_update_turn.rva,
                                                     gLayout->get_update_turn.pattern(), &observe_get_update_turn);
     gReadUpdate = plan.inline_hook_with_original("Observe accepted authority updates", gLayout->read_update.rva,
