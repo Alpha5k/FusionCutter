@@ -1,0 +1,5 @@
+add_subdirectory(plugins)
+add_subdirectory(loaders)
+add_subdirectory(runtime)
+add_subdirectory(verifier)
+add_subdirectory(slices)

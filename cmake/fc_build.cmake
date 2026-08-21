@@ -2,6 +2,7 @@ include_guard(GLOBAL)
 
 get_filename_component(FC_SOURCE_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
+# Establishes process-wide toolchain, runtime, diagnostic, and architecture policy before targets are declared.
 function(fc_initialize_build)
     if(NOT WIN32 OR NOT MSVC)
         message(FATAL_ERROR "Fusion Cutter currently requires Windows and the Visual Studio 2022 MSVC toolchain.")
@@ -24,6 +25,7 @@ function(fc_initialize_build)
     message(STATUS "Fusion Cutter architecture: ${FC_ARCHITECTURE}")
 endfunction()
 
+# Applies the warnings, language mode, and link optimization policy shared by compiled project targets.
 function(fc_configure_project_target target)
     target_compile_features(${target} PRIVATE cxx_std_23)
     set_target_properties(${target} PROPERTIES
@@ -32,6 +34,8 @@ function(fc_configure_project_target target)
     )
 
     target_compile_definitions(${target} PRIVATE
+        FC_BUILD_ID="${FC_BUILD_ID}"
+        FC_VERSION_STRING="${FC_VERSION_STRING}"
         WIN32_LEAN_AND_MEAN
         NOMINMAX
     )
@@ -58,6 +62,7 @@ function(fc_configure_project_target target)
     endif()
 endfunction()
 
+# Keeps binary and symbol outputs for every build configuration under one predictable artifact root.
 function(fc_set_artifact_directories target)
     set(output_directory "${CMAKE_BINARY_DIR}/artifacts/$<CONFIG>")
     set_target_properties(${target} PROPERTIES
@@ -68,6 +73,7 @@ function(fc_set_artifact_directories target)
     )
 endfunction()
 
+# Exposes the repository formatting script through generator-independent developer targets.
 function(fc_add_format_targets)
     find_program(FC_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
 

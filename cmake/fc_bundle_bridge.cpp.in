@@ -1,0 +1,12 @@
+#include <FusionCutter/SDK.hpp>
+
+@FC_FACTORY_DECLARATION@
+
+// Generated bridges expose bundled plugin registration and release without static initialization.
+FC_RegisterPluginFn @FC_BUNDLE_REGISTER_SYMBOL@() noexcept {
+    return fc::detail::bundled_registration<&@FC_FACTORY@>();
+}
+
+void @FC_BUNDLE_RELEASE_SYMBOL@() noexcept {
+    fc::detail::release_registration<&@FC_FACTORY@>();
+}

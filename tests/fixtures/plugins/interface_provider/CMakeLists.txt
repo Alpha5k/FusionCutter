@@ -1,0 +1,7 @@
+add_library(fc_interface_provider_probe SHARED
+    interface_provider.cpp
+)
+
+fc_configure_project_target(fc_interface_provider_probe)
+fc_set_artifact_directories(fc_interface_provider_probe)
+target_link_libraries(fc_interface_provider_probe PRIVATE FusionCutter::SDK)

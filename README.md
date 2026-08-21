@@ -1,7 +1,7 @@
 # FusionCutter
 
 FusionCutter is a modular patching framework for *Star Wars Battlefront II* (2005). It provides a stable SDK for
-independently built plugins while retaining a small built-in core contribution and target-specific loaders.
+independently built plugins while retaining a small built-in Core plugin and target-specific loaders.
 
 The framework is being rebuilt in staged component order. The repository may not contain every final target while a
 stage is in progress; new directories are added only when their first real implementation files exist.

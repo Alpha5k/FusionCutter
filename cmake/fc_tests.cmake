@@ -1,0 +1,33 @@
+include_guard(GLOBAL)
+
+# Defines the build and CTest policy shared by ordinary Catch2 test executables.
+function(fc_add_catch_test target)
+    cmake_parse_arguments(PARSE_ARGV 1 FC_TEST "" "NAME;LABEL" "SOURCES;LIBRARIES")
+
+    if("${target}" STREQUAL "")
+        message(FATAL_ERROR "fc_add_catch_test() requires a target name.")
+    endif()
+    if(TARGET "${target}")
+        message(FATAL_ERROR "fc_add_catch_test(${target}) cannot replace an existing target.")
+    endif()
+    if(FC_TEST_UNPARSED_ARGUMENTS)
+        message(FATAL_ERROR "fc_add_catch_test(${target}) received unknown arguments: ${FC_TEST_UNPARSED_ARGUMENTS}")
+    endif()
+    if(NOT FC_TEST_NAME)
+        message(FATAL_ERROR "fc_add_catch_test(${target}) requires NAME.")
+    endif()
+    if(NOT FC_TEST_LABEL)
+        message(FATAL_ERROR "fc_add_catch_test(${target}) requires LABEL.")
+    endif()
+    if(NOT FC_TEST_SOURCES)
+        message(FATAL_ERROR "fc_add_catch_test(${target}) requires at least one source file.")
+    endif()
+
+    add_executable(${target} ${FC_TEST_SOURCES})
+    fc_configure_project_target(${target})
+    fc_set_artifact_directories(${target})
+    target_link_libraries(${target} PRIVATE Catch2::Catch2WithMain ${FC_TEST_LIBRARIES})
+
+    add_test(NAME ${FC_TEST_NAME} COMMAND ${target})
+    set_tests_properties(${FC_TEST_NAME} PROPERTIES LABELS ${FC_TEST_LABEL})
+endfunction()

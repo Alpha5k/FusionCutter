@@ -40,8 +40,8 @@ Use the following layout:
 Let clang-format decide ordinary line wrapping and spacing. Do not manually pad unrelated declarations into aligned
 columns; those layouts are fragile under later edits.
 
-Use `clang-format off` and `clang-format on` only around a narrow native instruction, byte, or binary-layout
-representation that is materially clearer when arranged by hand. Add a short comment explaining why the exception is
+Use `clang-format off` and `clang-format on` only around a narrow representation of native instructions, bytes, or a
+binary layout that is materially clearer when arranged by hand. Add a short comment explaining why the exception is
 needed.
 
 ## Naming
@@ -64,12 +64,17 @@ context that is already clear from the containing type or namespace.
 Treat acronyms as ordinary words in C++ names: `PluginApi`, `CpuContext`, and `Rva`, not `PluginAPI`, `CPUContext`, or
 `RVA`. Preserve fixed external names and the established all-capital forms used by C ABI constants and macros.
 
-Use `core` as a common noun in prose for FusionCutter's private framework implementation. Capitalize it only when
-reproducing a fixed identifier, artifact name, or source symbol.
-
-### Vocabulary
+### Terminology
 
 Use one term for one concept, and preserve established project vocabulary instead of introducing a synonym.
+Do not create shorthand by combining existing terms into a new label; describe the subject and relationship in ordinary
+language instead.
+
+Write comments, diagnostics, and test descriptions in clear, natural language that identifies the actual subject,
+action, and purpose without assuming knowledge of internal terminology. Use a component, phase, or other named concept
+only when that identity is relevant, and qualify it when necessary to make the meaning unambiguous. Prefer precise
+descriptions such as "the framework," "the plugin catalog," or "the Prepare phase" over unexplained shorthand or
+labels used as generic actors.
 
 Use these suffixes consistently:
 
@@ -84,7 +89,7 @@ Use these suffixes consistently:
 | `Context` | Capabilities or input scoped to an operation or callback |
 | `Request` | Input submitted to an operation |
 | `Output` | Data produced by an operation |
-| `Handle` | An opaque identity or owner-mediated reference |
+| `Handle` | An opaque identity or a reference mediated by its owner |
 | `Index` | A position in a named collection or domain |
 
 Make units and domains clear when the type alone does not. For example, prefer `byte_size`, `rva`, or
@@ -132,9 +137,9 @@ Use abstractions when they make ownership, intent, or repeated operations easier
 flow and well-named intermediate values over clever compression or dense expressions. Fewer lines are not an
 improvement when the result is harder to read.
 
-Keep C-style records and functions at C ABI or binary-layout boundaries. Ordinary C++ code should use ordinary C++
-types and facilities. Use templates and concepts to express useful compile-time constraints, not to hide straightforward
-logic behind unnecessary machinery.
+Keep C-style records and functions at a C ABI boundary or another boundary that exposes a binary layout. Ordinary C++
+code should use ordinary C++ types and facilities. Use templates and concepts to express useful compile-time
+constraints, not to hide straightforward logic behind unnecessary machinery.
 
 ### Namespaces
 
@@ -144,33 +149,51 @@ scope.
 
 ## Comments
 
-Comments explain information that names, types, and control flow cannot express clearly. They supplement readable
-code; they do not replace it.
+Comments should let a reader understand the code without consulting the implementation specification, design history,
+or distant callers. Explain what a unit accomplishes, why it exists or is structured a particular way, and the
+constraints or consequences that matter. Comments supplement clear names and control flow; they do not replace them.
 
 ### Declaration comments
 
-Comment a type or function at its declaration when its name and signature are not enough to use it correctly. State its
-purpose and any non-obvious contract, such as ownership, lifetime, threading, or failure behavior. Routine declarations
-do not need individual comments.
+Comment types and functions unless their purpose and contract are routine and clear where they are declared. This
+applies equally to internal functions, callbacks, test fixtures, and test helpers; being small or test-only does not
+make a declaration self-explanatory. Document any important role, ownership, lifetime, threading, ordering, side
+effect, or failure behavior that the signature does not convey.
 
-One comment may document a group of closely related declarations. Add a file overview only when its purpose or scope is
-not otherwise clear. Do not copy declaration comments to definitions; definitions document implementation reasoning.
+One comment may document a group of closely related declarations when it clearly describes the purpose and contract
+shared by the group. Add a file overview only when the file's purpose or scope would otherwise be unclear. Do not
+repeat declaration comments at the definition.
 
 ### Implementation comments
 
-Place a comment immediately before the code it explains. Record why a choice was made, which invariant it preserves, or
-which assumption makes it correct. Improve the names or control flow first when that makes the comment unnecessary.
+Comment the major sections and transitions of nontrivial functions so their progression is clear without tracing every
+statement. Comments are especially useful around distinct outcome paths, representation changes, non-obvious ordering,
+and ownership, lifecycle, native, or failure boundaries. Place each comment immediately before the code it explains
+and state the relevant purpose, reason, invariant, or consequence.
 
 Native and reverse-engineered comments should preserve the relevant game behavior, ABI or layout assumption, and the
 reason a location or operation is valid. Put member invariants, sentinel meanings, and lifetime or ordering constraints
 beside the declarations they govern.
 
+### Test comments
+
+Test names state the behavior being checked; they do not replace comments explaining non-obvious fixture mechanics.
+Comment fixture models, callback scripts, injected failures, deliberate state changes, lifecycle or teardown checks,
+and groups of assertions whose relationship to the tested behavior is not apparent. Explain what a synthetic setup
+represents and why it proves the intended behavior.
+
+Do not label routine arrange, act, and assert steps or restate individual assertions. A test body whose setup, action,
+and expected result are already obvious from its name and helpers does not need additional narration.
+
 ### Comment style
 
-Use `//` and concise English prose with normal capitalization and punctuation. Comment a logical unit once rather than
-narrating each statement or repeating identifiers in sentence form. Remove commented-out code instead of preserving it
-as explanation.
+Use `//` and concise English with normal capitalization and punctuation. Comment a logical unit once; do not narrate
+individual statements, restate visible code, or add comments at arbitrary intervals. An isolated fact or label is not
+useful unless its relevance is clear. Remove commented-out code instead of preserving it as explanation.
 
-Keep long explanations in focused documentation, with enough context at the code site to preserve the local rule.
-Update comments with the code; an inaccurate comment is a defect.
+When a short comment barely exceeds the line limit, prefer concise wording that keeps it on one line. Do not leave only
+one or two words on a continuation line when the same meaning can be stated clearly in one line.
 
+Keep long explanations in focused documentation, but make the local comment sufficient to understand the code's
+purpose and the effect of the referenced rule or decision. Update comments with the code; an inaccurate comment is a
+defect.

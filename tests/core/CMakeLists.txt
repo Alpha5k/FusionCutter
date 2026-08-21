@@ -1,0 +1,7 @@
+add_subdirectory(catalog)
+add_subdirectory(config)
+add_subdirectory(planning)
+add_subdirectory(patching)
+add_subdirectory(runtime)
+add_subdirectory(reporting)
+add_subdirectory(targets)

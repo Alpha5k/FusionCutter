@@ -1,0 +1,5 @@
+add_subdirectory(abi_probe)
+add_subdirectory(dependent_dll)
+add_subdirectory(interface_provider)
+add_subdirectory(shared_hook_observer)
+add_subdirectory(shared_hook_owner)

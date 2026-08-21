@@ -1,0 +1,40 @@
+@PACKAGE_INIT@
+
+# Testing's private dependency archives are distributed beside it and exposed only through narrowly named imports.
+function(_fc_import_testing_archive target)
+    if(TARGET "${target}")
+        return()
+    endif()
+    set(names ${ARGN})
+    string(MAKE_C_IDENTIFIER "${target}" variable_suffix)
+    set(location_variable "_fc_testing_${variable_suffix}")
+    unset(${location_variable} CACHE)
+    find_library(${location_variable}
+        NAMES ${names}
+        PATHS "${PACKAGE_PREFIX_DIR}/lib/fusioncutter-testing"
+        NO_DEFAULT_PATH
+        REQUIRED
+    )
+    add_library("${target}" STATIC IMPORTED)
+    set_target_properties("${target}" PROPERTIES
+        IMPORTED_LOCATION "${${location_variable}}"
+    )
+endfunction()
+
+_fc_import_testing_archive(FusionCutter::TestingIni fc_inih)
+_fc_import_testing_archive(FusionCutter::TestingZycore Zycore)
+_fc_import_testing_archive(FusionCutter::TestingZydis Zydis)
+_fc_import_testing_archive(FusionCutter::TestingCatch2 Catch2 Catch2d)
+_fc_import_testing_archive(FusionCutter::TestingCatch2WithMain Catch2Main Catch2Maind)
+
+set_property(TARGET FusionCutter::TestingZydis PROPERTY
+    INTERFACE_LINK_LIBRARIES FusionCutter::TestingZycore)
+set_property(TARGET FusionCutter::TestingCatch2 PROPERTY
+    INTERFACE_INCLUDE_DIRECTORIES "${PACKAGE_PREFIX_DIR}/include")
+set_property(TARGET FusionCutter::TestingCatch2WithMain PROPERTY
+    INTERFACE_LINK_LIBRARIES FusionCutter::TestingCatch2)
+
+include("${CMAKE_CURRENT_LIST_DIR}/FusionCutterSDKTargets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/FusionCutterPlugin.cmake")
+
+check_required_components(FusionCutterSDK)

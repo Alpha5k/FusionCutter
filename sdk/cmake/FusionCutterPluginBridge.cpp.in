@@ -1,0 +1,6 @@
+#include <FusionCutter/SDK.hpp>
+
+@FC_FACTORY_DECLARATION@
+
+// The generated translation unit gives one author factory the fixed C ABI query export.
+FC_EXPORT_PLUGIN(@FC_FACTORY@)

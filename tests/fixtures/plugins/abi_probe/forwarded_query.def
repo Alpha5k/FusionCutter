@@ -1,0 +1,3 @@
+LIBRARY
+EXPORTS
+    FusionCutter_QueryPlugin=KERNEL32.Sleep

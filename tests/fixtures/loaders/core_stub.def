@@ -1,0 +1,5 @@
+EXPORTS
+    FusionCutter_QueryCore
+    FC_Test_InitializeCount
+    FC_Test_UpdateCount
+    FC_Test_CopyStartup

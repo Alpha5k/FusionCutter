@@ -1,0 +1,3 @@
+add_subdirectory(simple_write)
+add_subdirectory(relocated_plan)
+add_subdirectory(runtime)

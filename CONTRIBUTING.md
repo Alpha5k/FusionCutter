@@ -15,8 +15,8 @@ implementation.
 - Git
 - clang-format 22 for C or C++ changes
 
-FusionCutter uses C++23. The checked-in CMake presets provide the supported compiler, architecture, runtime-library,
-and warning configuration.
+FusionCutter uses C++23. The checked-in CMake presets provide the supported compiler, architecture, C++ runtime, and
+warning configuration.
 
 ## Set up the repository
 
@@ -93,8 +93,8 @@ match the configuration passed to `cmake --build`.
 | Label | Intended use |
 | --- | --- |
 | `fast` | Unit and component tests run during ordinary development |
-| `integration` | DLL, loader, native, plugin, runtime, and process-boundary tests |
-| `images` | Target recognition and supported-image validation using local reviewed binaries |
+| `integration` | Tests across DLL, loader, native, plugin, runtime, and process boundaries |
+| `images` | Target recognition and validation of supported images using local reviewed binaries |
 
 Run the fast suite for the affected architecture during normal development:
 
@@ -125,8 +125,8 @@ Replace the preset directory with `build/vs2022-x64` when testing x64. Changes t
 should run the relevant suites for both architectures.
 
 Tests labeled `images` require locally configured, reviewed game binaries. These binaries must never be committed.
-Image tests are normally required only when changing target recognition, native locations, evidence, or supported-image
-behavior.
+Image tests are normally required only when changing target recognition, native locations, evidence, or the behavior
+of supported images.
 
 ### Adding tests
 

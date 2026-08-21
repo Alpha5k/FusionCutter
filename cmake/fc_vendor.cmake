@@ -2,6 +2,7 @@ include_guard(GLOBAL)
 
 include(FetchContent)
 
+# Fails configuration before a dependency can silently fall back to an unreviewed system or network copy.
 function(fc_require_vendor_file relative_path dependency_name)
     if(NOT EXISTS "${FC_SOURCE_ROOT}/vendor/${relative_path}")
         message(FATAL_ERROR
@@ -10,43 +11,14 @@ function(fc_require_vendor_file relative_path dependency_name)
     endif()
 endfunction()
 
+# Configures the complete reviewed production dependency graph with examples, tests, and installation disabled.
 function(fc_add_production_dependencies)
     fc_require_vendor_file("SafetyHook/CMakeLists.txt" "SafetyHook")
     fc_require_vendor_file("Zydis/CMakeLists.txt" "Zydis")
     fc_require_vendor_file("Zydis/dependencies/zycore/CMakeLists.txt" "Zycore")
-    fc_require_vendor_file("inih/ini.c" "inih")
     fc_require_vendor_file("Quill/CMakeLists.txt" "Quill")
 
-    set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
-    set(CMAKE_DISABLE_FIND_PACKAGE_Doxygen TRUE)
-
-    set(ZYDIS_BUILD_EXAMPLES OFF)
-    set(ZYDIS_BUILD_TOOLS OFF)
-    set(ZYDIS_BUILD_DOXYGEN OFF)
-    set(ZYDIS_BUILD_TESTS OFF)
-
-    # Record the reviewed local source before SafetyHook declares Zydis through FetchContent. CMake's first
-    # declaration wins, so SafetyHook cannot download or substitute another revision during configuration.
-    FetchContent_Declare(Zydis
-        SOURCE_DIR "${FC_SOURCE_ROOT}/vendor/Zydis"
-        BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/vendor/Zydis"
-        EXCLUDE_FROM_ALL
-    )
-    FetchContent_MakeAvailable(Zydis)
-
-    set(SAFETYHOOK_BUILD_DOCS OFF)
-    set(SAFETYHOOK_BUILD_TEST OFF)
-    set(SAFETYHOOK_BUILD_EXAMPLES OFF)
-    set(SAFETYHOOK_AMALGAMATE OFF)
-    set(SAFETYHOOK_FETCH_ZYDIS ON)
-    set(SAFETYHOOK_USE_CXXMODULES OFF)
-    set(SAFETYHOOK_BUILD_MODULE OFF)
-
-    add_subdirectory(
-        "${FC_SOURCE_ROOT}/vendor/SafetyHook"
-        "${CMAKE_CURRENT_BINARY_DIR}/vendor/SafetyHook"
-        EXCLUDE_FROM_ALL
-    )
+    fc_add_safetyhook_dependency()
 
     set(QUILL_BUILD_BENCHMARKS OFF)
     set(QUILL_BUILD_EXAMPLES OFF)
@@ -62,6 +34,68 @@ function(fc_add_production_dependencies)
         "${CMAKE_CURRENT_BINARY_DIR}/vendor/Quill"
         EXCLUDE_FROM_ALL
     )
+
+    fc_add_inih_dependency()
+endfunction()
+
+# Configures SafetyHook independently so common validators do not inherit the full production graph.
+function(fc_add_safetyhook_dependency)
+    if(TARGET safetyhook::safetyhook)
+        return()
+    endif()
+    fc_require_vendor_file("SafetyHook/CMakeLists.txt" "SafetyHook")
+
+    set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+    set(CMAKE_DISABLE_FIND_PACKAGE_Doxygen TRUE)
+
+    # Record the reviewed local source before SafetyHook declares Zydis through FetchContent. CMake's first
+    # declaration wins, so SafetyHook cannot download or substitute another revision during configuration.
+    fc_add_zydis_dependency()
+
+    set(SAFETYHOOK_BUILD_DOCS OFF)
+    set(SAFETYHOOK_BUILD_TEST OFF)
+    set(SAFETYHOOK_BUILD_EXAMPLES OFF)
+    set(SAFETYHOOK_AMALGAMATE OFF)
+    set(SAFETYHOOK_FETCH_ZYDIS ON)
+    set(SAFETYHOOK_USE_CXXMODULES OFF)
+    set(SAFETYHOOK_BUILD_MODULE OFF)
+
+    add_subdirectory(
+        "${FC_SOURCE_ROOT}/vendor/SafetyHook"
+        "${CMAKE_CURRENT_BINARY_DIR}/vendor/SafetyHook"
+        EXCLUDE_FROM_ALL
+    )
+endfunction()
+
+# Common hook validation needs only the reviewed decoder; physical hook/runtime dependencies are configured separately.
+function(fc_add_zydis_dependency)
+    if(TARGET Zydis)
+        return()
+    endif()
+    fc_require_vendor_file("Zydis/CMakeLists.txt" "Zydis")
+    fc_require_vendor_file("Zydis/dependencies/zycore/CMakeLists.txt" "Zycore")
+
+    set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+    set(CMAKE_DISABLE_FIND_PACKAGE_Doxygen TRUE)
+    set(ZYDIS_BUILD_EXAMPLES OFF)
+    set(ZYDIS_BUILD_TOOLS OFF)
+    set(ZYDIS_BUILD_DOXYGEN OFF)
+    set(ZYDIS_BUILD_TESTS OFF)
+    FetchContent_Declare(Zydis
+        SOURCE_DIR "${FC_SOURCE_ROOT}/vendor/Zydis"
+        BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/vendor/Zydis"
+        EXCLUDE_FROM_ALL
+    )
+    FetchContent_MakeAvailable(Zydis)
+endfunction()
+
+# Defines the one inih build and the macros that configure its parser without forcing unrelated production
+# dependencies.
+function(fc_add_inih_dependency)
+    if(TARGET fc_inih)
+        return()
+    endif()
+    fc_require_vendor_file("inih/ini.c" "inih")
 
     add_library(fc_inih STATIC
         "${FC_SOURCE_ROOT}/vendor/inih/ini.c"
@@ -91,7 +125,11 @@ function(fc_add_production_dependencies)
     )
 endfunction()
 
+# Adds the vendored test framework once for in-tree tests and packaged Testing consumers.
 function(fc_add_test_dependencies)
+    if(TARGET Catch2::Catch2WithMain)
+        return()
+    endif()
     fc_require_vendor_file("Catch2/CMakeLists.txt" "Catch2")
 
     set(CATCH_INSTALL_DOCS OFF)

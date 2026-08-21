@@ -1,0 +1,16 @@
+#include "configured_bundles.hpp"
+
+#include <array>
+
+@FC_CONFIGURED_BUNDLE_DECLARATIONS@
+
+namespace fc::catalog {
+
+// The generated table preserves the declaration order of bundled plugins for the common admission path.
+std::span<const RegistrationBridge> configured_bundle_bridges() noexcept {
+    static const std::array<RegistrationBridge, @FC_CONFIGURED_BUNDLE_COUNT@> bridges{
+@FC_CONFIGURED_BUNDLE_ENTRIES@    };
+    return bridges;
+}
+
+} // namespace fc::catalog

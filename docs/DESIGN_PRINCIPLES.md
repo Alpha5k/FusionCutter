@@ -93,12 +93,12 @@ incidental filesystem, registration, or container order.
 
 ### Ownership and boundaries
 
-The public SDK is the boundary between the core and plugins. Framework code must not depend on a plugin's private
-implementation, and the SDK must not expose private core code.
+The public SDK is the boundary between the framework and plugins. Framework code must not depend on a plugin's private
+implementation, and the SDK must not expose private framework code.
 
-The core owns framework behavior and shared target facts. Patch-specific locations, settings, structures, and behavior
+The framework owns shared behavior and target facts. Patch-specific locations, settings, structures, and behavior
 remain owned by the plugin that uses them. A missing framework capability should lead to the simplest general
-extension, not a one-off exception in the core.
+extension, not a one-off exception in the framework.
 
 Every resource and piece of retained state should have a clear owner and lifetime, including failure paths and native
 boundaries. Public headers and interfaces must be self-contained, and third-party types should remain behind the
@@ -108,7 +108,8 @@ component that owns them.
 
 The SDK should keep common patches concise while supporting large, stateful features. Advanced capabilities should
 compose with the ordinary model rather than add boilerplate to simple patches. Public operations should describe game
-and framework concepts directly without requiring knowledge of core internals or template-adapter machinery.
+and framework concepts directly without requiring knowledge of framework internals or the template machinery used by
+adapters.
 
 ### Lifecycle responsibilities
 
@@ -122,8 +123,8 @@ The framework and SDK should express native assumptions and target-specific fact
 optional; omitting it skips only the evidence comparison, while every other framework check still applies.
 
 Framework-coordinated native writes, hooks, and installation must use the common planning, validation, and installation
-path. If that path cannot express a required operation, add the simplest general capability instead of a core-specific
-workaround.
+path. If that path cannot express a required operation, add the simplest general capability instead of a
+framework-specific workaround.
 
 ### Failure handling
 
