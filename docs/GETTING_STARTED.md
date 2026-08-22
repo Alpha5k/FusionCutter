@@ -707,5 +707,5 @@ The examples above cover common starting points. FusionCutter also supports patc
 - share a small service or piece of information between plugins through patch interfaces; and
 - build richer configuration with `choice`, `section`, fixed `StringMap` entries, and settings validation.
 
-This guide does not walk through every one of those cases. The [SDK reference](SDK_REFERENCE.md) explains the
+This guide does not walk through every one of those use cases. The [SDK reference](SDK_REFERENCE.md) explains the
 FusionCutter tools behind them and provides focused examples.

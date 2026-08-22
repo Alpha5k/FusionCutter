@@ -4,9 +4,6 @@ This guide covers the development workflow for FusionCutter: setting up the repo
 tests, and validating a change. See [STYLE_GUIDE.md](docs/STYLE_GUIDE.md) for source formatting, naming, and comments,
 and [DESIGN_PRINCIPLES.md](docs/DESIGN_PRINCIPLES.md) for project-wide design guidance.
 
-Changes to supported behavior, public interfaces, or architectural boundaries should be discussed before
-implementation.
-
 ## Requirements
 
 - Windows

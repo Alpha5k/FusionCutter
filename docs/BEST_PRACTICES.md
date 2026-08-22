@@ -217,17 +217,6 @@ dependency when that is practical and permitted.
 Do not depend on another plugin's private DLL exports, assume the user's working directory, or require a global PATH
 change. Keep symbols and source metadata in release artifacts when they materially improve crash or failure diagnosis.
 
-## Port intent, not infrastructure
-
-When porting a patch, preserve its supported behavior and verified target knowledge. Replace earlier framework plumbing
-with the corresponding SDK capability.
-
-Review old direct writes, detours, callback lists, configuration parsing, logging, and background work individually.
-Each is a prompt to find the framework owner for that responsibility, not a component that must be copied unchanged.
-
-Remove obsolete compatibility machinery once the new patch expresses the behavior directly. Do not preserve an
-obsolete architecture by hiding it behind new names.
-
 ## Before release
 
 Confirm that:
