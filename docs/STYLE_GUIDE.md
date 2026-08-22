@@ -149,9 +149,9 @@ scope.
 
 ## Comments
 
-Comments should let a reader understand the code without consulting the implementation specification, design history,
-or distant callers. Explain what a unit accomplishes, why it exists or is structured a particular way, and the
-constraints or consequences that matter. Comments supplement clear names and control flow; they do not replace them.
+Comments should let a reader understand the code without reconstructing its design history or tracing distant callers.
+Explain what a unit accomplishes, why it exists or is structured a particular way, and the constraints or consequences
+that matter. Comments supplement clear names and control flow; they do not replace them.
 
 ### Declaration comments
 
