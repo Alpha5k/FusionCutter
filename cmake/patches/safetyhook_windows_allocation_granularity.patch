@@ -1,0 +1,14 @@
+diff --git a/src/allocator.cpp b/src/allocator.cpp
+index c5a960f..d3a702c 100644
+--- a/src/allocator.cpp
++++ b/src/allocator.cpp
+@@ -257,7 +257,8 @@ std::expected<uint8_t*, Allocator::Error> Allocator::allocate_nearby_memory(
+             continue;
+         }
+ 
+-        if (auto allocation_address = attempt_allocation(p); allocation_address != nullptr) {
++        if (auto allocation_address = attempt_allocation(align_up(p, si.allocation_granularity));
++            allocation_address != nullptr) {
+             return allocation_address;
+         }
+     }

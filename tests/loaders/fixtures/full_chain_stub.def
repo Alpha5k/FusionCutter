@@ -1,0 +1,7 @@
+EXPORTS
+    DirectInput8Create=_FC_Test_DirectInput8Create@20 @1
+    DllCanUnloadNow=_FC_Test_CanUnload@0 @2
+    GetdfDIJoystick=_FC_Test_Joystick@0 @6
+    FC_Test_ChainCount
+    BF2GameExt_Init=_BF2GameExt_Init@8
+    FC_Test_GameExtCount

@@ -1,0 +1,4 @@
+EXPORTS
+    FC_Start
+    FC_Test_StartCount
+    FC_Test_CopyStartup

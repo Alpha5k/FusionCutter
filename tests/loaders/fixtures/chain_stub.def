@@ -1,0 +1,5 @@
+EXPORTS
+    DirectInput8Create=_FC_Test_DirectInput8Create@20 @1
+    FC_Test_ChainCount
+    BF2GameExt_Init=_BF2GameExt_Init@8
+    FC_Test_GameExtCount
