@@ -87,10 +87,10 @@ facilities above and these Battlefront II patches:
 
 | Patch | What it does |
 | --- | --- |
-| Colored chats | Sets separate colors for normal, team, admin and buddy messages |
+| Colored chats | Sets chat colors for normal, team, admin and buddy messages |
 | Frame rate limit | Sets the game's maximum frame rate, or removes its limit with a value of `0`; defaults to 120 FPS |
-| Dedicated server fixes | Corrects texture handling with `/norender`, password handling and lobby advertisement |
-| Remote administration | Supports authenticated server commands, including Lua execution, from administration tools |
+| Dedicated server fixes | Fixes dedicated server hosting for Steam/GOG versions of the game |
+| Remote administration | Adds the remote administration (RCON) server back to supported versions of the game |
 
 | Patch | Steam | GOG | DVD | ModTools | Classic Collection |
 | --- | --- | --- | --- | --- | --- |
