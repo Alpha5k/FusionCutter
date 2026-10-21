@@ -45,10 +45,11 @@ void NativeIntegration::plan(fc::Plan &plan, Service &service) {
         return;
     }
 
-    // Read the unaligned absolute operand as bytes and verify that it points to the initialization flag.
-    const auto operand = plan.read_bytes(
-        plan.at(layout->setup.rva + static_cast<std::uint32_t>(layout->setup.operand_offset), "Address of the Lua initialization flag"),
-        sizeof(std::uint32_t), fc::points_to(plan.at(layout->initialized)));
+    // Cleanup references the same initialization flag and remains unchanged by GameExt.
+    // Read its address as bytes because the instruction operand is unaligned.
+    const auto operand = plan.read_bytes(plan.at(layout->teardown.rva + static_cast<std::uint32_t>(layout->teardown.operand_offset),
+                                                 "Address of the Lua initialization flag"),
+                                         sizeof(std::uint32_t), fc::points_to(plan.at(layout->initialized)));
     if (!operand) {
         return;
     }
@@ -72,13 +73,13 @@ void NativeIntegration::plan(fc::Plan &plan, Service &service) {
     state_memory_ = plan.access<lua_State *const>(plan.at(layout->state, "Current Lua state"));
     initialized_memory_ = plan.access<const std::uint8_t>(plan.at(layout->initialized, "Lua initialized flag"));
 
-    // Apply provider declarations once native setup has created the Lua state.
-    plan.observe<LifecycleCall>(plan.at(layout->setup.rva, layout->setup.name), fc::after([this, &service]() noexcept {
-                                    if (auto *current = state()) {
-                                        service.setup(current);
-                                    }
-                                }),
-                                instruction_evidence(layout->setup, image_base));
+    // Observe the shared return after initialization, leaving other mods' entry detours intact.
+    plan.observe_instruction(plan.at(layout->setup.rva, layout->setup.name), fc::before([this, &service](const fc::CpuContext &) noexcept {
+                                 if (auto *current = state()) {
+                                     service.setup(current);
+                                 }
+                             }),
+                             instruction_evidence(layout->setup, image_base));
 
     // Reapply provider declarations after the game installs a native closure with this name.
     const auto registered = [this, &service](const char *const &name, const FcLuaFunction &, const int &) noexcept {

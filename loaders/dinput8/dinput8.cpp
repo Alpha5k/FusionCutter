@@ -70,7 +70,6 @@ class FindHandle final {
 
 HMODULE loader_module{};
 std::once_flag forwarding_once;
-std::once_flag game_ext_once;
 std::expected<ForwardingState, DWORD> forwarding{std::unexpected(ERROR_MOD_NOT_FOUND)};
 fc::loaders::StartupController startup;
 
@@ -105,8 +104,8 @@ void warn_chain(std::string_view reason) noexcept {
     }
 }
 
-// GameExt is a standalone DLL rather than an FC plugin; initialize it outside loader lock before FC startup.
-// Optional failures leave Fusion Cutter startup available.
+// GameExt redirects arrays initialized by the executable's constructors, so load it during process attachment.
+// This matches its own proxy; Fusion Cutter itself starts later, outside loader lock.
 void load_optional_game_ext() noexcept {
     try {
         if (GetModuleHandleW(L"BF2GameExt.dll")) {
@@ -379,12 +378,6 @@ HRESULT forwarding_failure(DWORD error) noexcept {
 extern "C" HRESULT WINAPI FC_DInput8_DirectInput8Create(HINSTANCE instance, DWORD version, REFIID interface_id, LPVOID *output,
                                                         LPUNKNOWN outer) noexcept {
     const auto exports = active_exports();
-    // Complete GameExt initialization once before any calling thread starts Fusion Cutter.
-    try {
-        std::call_once(game_ext_once, load_optional_game_ext);
-    } catch (...) {
-        warn_chain("Could not coordinate optional BF2GameExt.dll startup");
-    }
     startup.start(loader_module, false, "DInput8");
     if (!exports) {
         return forwarding_failure(exports.error());
@@ -447,11 +440,12 @@ extern "C" LPCDIDATAFORMAT WINAPI FC_DInput8_GetdfDIJoystick() noexcept {
     return exports ? (*exports)->getdf_di_joystick() : nullptr;
 }
 
-// Save this proxy's module handle for directory lookup when its exports are called.
+// Initialize optional GameExt before executable constructors; DirectInput forwarding and FC startup remain deferred.
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *) {
     if (reason == DLL_PROCESS_ATTACH) {
         loader_module = instance;
         DisableThreadLibraryCalls(instance);
+        load_optional_game_ext();
     }
     return TRUE;
 }

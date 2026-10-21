@@ -24,6 +24,10 @@ and repeat its registration.
 coroutines share their VM's identity. Setting a global in one VM does not set it in every other VM.
 Use `initialize` for setup that should happen in each VM and a specific StateId for work aimed at one VM.
 
+When used with BF2GameExt, FC's initializers for a new VM run before GameExt registers its globals.
+Game scripts run after both have registered their bindings; use GameExt globals from those scripts
+rather than relying on them during an FC initializer.
+
 A `Frame` describes one invocation into Lua through this API. It gives the callback access to incoming
 arguments, globals and return values. A `Value` refers to a Lua value within that invocation. Here "frame"
 means a call's working context, not a rendered game frame. The frame and its Value wrappers expire when the

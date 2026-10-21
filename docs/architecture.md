@@ -32,6 +32,10 @@ Client loaders load the adjacent `FusionCutter.dll` and call `FC_Start`. The ded
 runtime in the same DLL and starts it from a worker after DLL attachment. Startup establishes a fixed
 Client or Server role; the current game session can change independently of that role.
 
+The DirectInput loader initializes an adjacent `BF2GameExt.dll` during process attachment, matching
+GameExt's own proxy. GameExt needs to redirect game arrays before the executable's constructors run.
+FC runtime initialization remains deferred until the first `DirectInput8Create` call, outside loader lock.
+
 The runtime then:
 
 1. Locates its directory, initializes reporting and reads `FusionCutter.ini`.

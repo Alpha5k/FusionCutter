@@ -26,6 +26,14 @@ Start the game normally. The proxy starts Fusion Cutter when the game creates it
 then forwards DirectInput calls to Windows. A server launch that skips DirectInput needs the dedicated
 server loader described below.
 
+### BF2GameExt
+
+Keep Fusion Cutter's `dinput8.dll` and place `BF2GameExt.dll` and `BF2GameExt.ini` beside it. A separate
+GameExt proxy is unnecessary. The loader honors `[General] Enabled` in `BF2GameExt.ini`, defaulting to enabled.
+
+GameExt initializes before the game's startup constructors because some of its patches replace arrays
+those constructors initialize. Fusion Cutter still starts when the game creates its DirectInput interface.
+
 ### Another mod already uses dinput8.dll
 
 The Fusion Cutter proxy can forward calls through one adjacent DLL named `dinput8_*.dll`. For example, an

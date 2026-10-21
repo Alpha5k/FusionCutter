@@ -3,6 +3,7 @@
 #include <array>
 #include <filesystem>
 #include <memory>
+#include <safetyhook/inline_hook.hpp>
 #include <string>
 #include <utility>
 #include <vector>
@@ -176,6 +177,67 @@ TEST_CASE("Instruction observers follow changes to registers, stack and continua
     CHECK(faults == 0);
     CHECK(before == 1);
     CHECK(after == 1);
+}
+
+TEST_CASE("Return instruction observers coexist with external entry detours", "[native][hook]") {
+    CodePage code;
+    using Call = int(__cdecl *)();
+    static std::uint8_t initialized;
+    static Call original;
+    static std::vector<int> callbacks;
+    initialized = 0;
+    callbacks.clear();
+
+    // The original stores its initialization flag, returns nine and has RET padding like the game.
+#if defined(_M_X64)
+    std::vector<std::uint8_t> entry{0x48, 0xb8};
+#else
+    std::vector<std::uint8_t> entry{0xb8};
+#endif
+    const auto flag = reinterpret_cast<std::uintptr_t>(&initialized);
+    const auto *bytes = reinterpret_cast<const std::uint8_t *>(&flag);
+    entry.insert(entry.end(), bytes, bytes + sizeof(flag));
+    entry.insert(entry.end(), {0xc6, 0x00, 0x01, 0xb8, 0x09, 0x00, 0x00, 0x00});
+    const auto return_offset = static_cast<std::uint32_t>(entry.size());
+    entry.insert(entry.end(), {0xc3, 0xcc, 0xcc, 0xcc, 0xcc});
+    code.put(0, entry);
+    code.seal();
+
+    // Install outside FC's registry to model an existing mod's entry detour and post-original work.
+    auto external = safetyhook::InlineHook::create(
+        code.address(), +[]() -> int {
+            const auto result = original();
+            callbacks.push_back(2);
+            return result;
+        });
+    REQUIRE(external.has_value());
+    original = external->original<decltype(original)>();
+
+    unsigned observed{}, faults{};
+    HookRegistry hooks;
+    SubmittedPlan plan{nullptr, {code.image()}, &hooks};
+    PlanView view{plan};
+    view.sdk.observe_instruction(return_offset, fc::before([&](const fc::CpuContext &registers) noexcept {
+#if defined(_M_X64)
+                                     const auto accumulator = registers.rax;
+#else
+                                     const auto accumulator = registers.eax;
+#endif
+                                     if (!initialized || accumulator != 9) {
+                                         ++faults;
+                                     }
+                                     callbacks.push_back(1);
+                                     ++observed;
+                                 }));
+    install(plan);
+
+    const auto target = reinterpret_cast<Call>(code.address());
+    CHECK(target() == 9);
+    CHECK(target() == 9);
+    CHECK(initialized == 1);
+    CHECK(observed == 2);
+    CHECK(faults == 0);
+    CHECK(callbacks == std::vector<int>{1, 2, 1, 2});
 }
 
 namespace {

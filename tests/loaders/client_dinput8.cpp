@@ -61,10 +61,21 @@ int client(std::string_view scenario) {
         return 18;
     }
 
+    // GameExt must finish loading before the game can run constructors that use its replacement arrays.
+    const auto game_ext_module = GetModuleHandleW(L"BF2GameExt.dll");
+    if (static_cast<bool>(game_ext_module) != game_ext_loaded || GetModuleHandleW(L"FusionCutter.dll")) {
+        return 28;
+    }
+    if (game_ext_module) {
+        const auto count = resolve<std::uint32_t (*)()>(game_ext_module, "FC_Test_GameExtCount");
+        if (!count || count() != (scenario == "gameext-preloaded" ? 0u : 1u)) {
+            return 29;
+        }
+    }
+
     // A secondary export initializes forwarding; Fusion Cutter starts later on DirectInput8Create.
     const auto joystick = resolve<LPCDIDATAFORMAT(WINAPI *)()>(proxy, "GetdfDIJoystick");
-    if (!joystick || !joystick() || GetModuleHandleW(L"FusionCutter.dll") ||
-        (scenario != "gameext-preloaded" && GetModuleHandleW(L"BF2GameExt.dll"))) {
+    if (!joystick || !joystick() || GetModuleHandleW(L"FusionCutter.dll")) {
         return 20;
     }
     if (scenario == "secondary" || scenario == "gameext-secondary") {
@@ -101,9 +112,8 @@ int client(std::string_view scenario) {
         return 22;
     }
 
-    // Successful GameExt startup retains one initialized module; disabled or failed requests remain optional.
-    const auto game_ext_module = GetModuleHandleW(L"BF2GameExt.dll");
-    if (static_cast<bool>(game_ext_module) != game_ext_loaded) {
+    // Forwarded calls must retain the original module without initializing GameExt again.
+    if (GetModuleHandleW(L"BF2GameExt.dll") != game_ext_module) {
         return 28;
     }
     if (game_ext_module) {

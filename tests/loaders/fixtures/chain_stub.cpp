@@ -30,11 +30,6 @@ extern "C" BOOL WINAPI BF2GameExt_Init(std::uintptr_t exe_base, const char *ini_
         GetPrivateProfileIntA("Fixture", "Value", 0, ini_path) != 42) {
         return FALSE;
     }
-    // Keep concurrent first calls overlapped so the count detects repeated initialization.
-    Sleep(25);
-    if (GetModuleHandleW(L"FusionCutter.dll")) {
-        return FALSE;
-    }
     game_ext_calls.fetch_add(1, std::memory_order_relaxed);
     char mode[32]{};
     GetEnvironmentVariableA("FC_TEST_CHAIN_MODE", mode, sizeof(mode));

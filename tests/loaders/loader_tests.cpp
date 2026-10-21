@@ -67,7 +67,7 @@ TEST_CASE("DirectInput retains optional exports and system fallback across candi
     }
 }
 
-TEST_CASE("DirectInput initializes adjacent GameExt once before the runtime and preserves its INI", "[loaders]") {
+TEST_CASE("DirectInput initializes GameExt when the proxy loads and preserves its INI", "[loaders]") {
     for (const auto mode : {"gameext", "gameext-secondary", "gameext-disabled", "gameext-marker", "gameext-preloaded", "gameext-invalid",
                             "gameext-missing-init", "gameext-failed-init"}) {
         INFO(mode);
