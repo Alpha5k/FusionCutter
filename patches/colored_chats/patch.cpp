@@ -74,8 +74,13 @@ class Handler {
             return;
         }
         const auto message = fc::read_field<ChatHeader>(message_address);
-        const bool buddy =
-            message.sender != kAdminSender && is_player_buddy_.call(0, static_cast<std::int32_t>(message.sender)).value_or(false);
+        // Native display has resolved sender at frame -4 and recipient at -0x14 in both builds.
+        const auto sender = message.sender < kAdminSender ? fc::read_field<std::uint32_t>(frame, -4) : 0;
+        const auto local = message.sender < kAdminSender ? fc::read_field<std::uint32_t>(frame, -0x14) : 0;
+        const auto sender_team = sender != 0 ? fc::read_field<std::int32_t>(sender, 0x134) : 0;
+        const auto local_team = local != 0 ? fc::read_field<std::int32_t>(local, 0x134) : 0;
+        const bool buddy = message.channel == 1 && local_team > 0 && local_team == sender_team &&
+                           is_player_buddy_.call(0, static_cast<std::int32_t>(message.sender)).value_or(false);
         const auto color = message_color(colors_, message.sender, message.channel, buddy);
         fc::write_field(frame, -0x1c, color);
     }
@@ -96,16 +101,17 @@ fc::Result<> validate_color(std::string_view text) {
 } // namespace
 
 fc::Patch definition() {
-    return fc::Patch{.id = "ColoredChats",
-                     .description = "Set chat colors by message type.",
-                     .category = "Client",
-                     .enabled = true,
-                     .settings = fc::settings<Options>(
-                         {fc::setting("DefaultColor", &Options::chat, "Six-digit RGB color for normal chat.").validate(&validate_color),
-                          fc::setting("TeamColor", &Options::team, "Six-digit RGB color for team chat.").validate(&validate_color),
-                          fc::setting("AdminColor", &Options::admin, "Six-digit RGB color for admin chat.").validate(&validate_color),
-                          fc::setting("BuddyColor", &Options::buddy, "Six-digit RGB color for buddy chat.").validate(&validate_color)}),
-                     .variants = {fc::variant<Handler>({"BF2.Steam.59EDE353", "BF2.GOG.59EDF52B"}, fc::Role::Client)}};
+    return fc::Patch{
+        .id = "ColoredChats",
+        .description = "Set chat colors by message type.",
+        .category = "Client",
+        .enabled = true,
+        .settings = fc::settings<Options>(
+            {fc::setting("DefaultColor", &Options::chat, "Six-digit RGB color for normal chat.").validate(&validate_color),
+             fc::setting("TeamColor", &Options::team, "Six-digit RGB color for team chat.").validate(&validate_color),
+             fc::setting("AdminColor", &Options::admin, "Six-digit RGB color for admin chat.").validate(&validate_color),
+             fc::setting("BuddyColor", &Options::buddy, "Six-digit RGB color for friends' team chat.").validate(&validate_color)}),
+        .variants = {fc::variant<Handler>({"BF2.Steam.59EDE353", "BF2.GOG.59EDF52B"}, fc::Role::Client)}};
 }
 
 } // namespace fc::core_plugin::colored_chats

@@ -71,6 +71,7 @@ add_executable(fc_tests
     patches/lua_multiplayer/protocol_tests.cpp
     patches/lua_multiplayer/service_tests.cpp
     patches/rcon_server/protocol_tests.cpp
+    patches/colored_chats_tests.cpp
 
     game/game_tests.cpp
     multiplayer/protocol_tests.cpp

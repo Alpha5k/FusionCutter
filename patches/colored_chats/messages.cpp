@@ -35,8 +35,11 @@ const wchar_t *one_line(const wchar_t *text, std::array<wchar_t, kChatCapacity> 
     return buffer.data();
 }
 
-std::uint32_t message_color(const Colors &colors, std::uint32_t sender, std::uint32_t channel, bool buddy) noexcept {
-    return sender == kAdminSender ? colors.admin : buddy ? colors.buddy : channel == 1 ? colors.team : colors.chat;
+std::uint32_t message_color(const Colors &colors, std::uint32_t sender, std::uint32_t channel, bool teammate_buddy) noexcept {
+    if (sender == kAdminSender) {
+        return colors.admin;
+    }
+    return channel == 1 ? (teammate_buddy ? colors.buddy : colors.team) : colors.chat;
 }
 
 } // namespace fc::core_plugin::colored_chats

@@ -11,7 +11,7 @@ namespace fc::core_plugin::colored_chats {
 inline constexpr std::size_t kChatCapacity = 128;
 inline constexpr std::uint32_t kAdminSender = 0x40;
 
-// Holds opaque native AARRGGBB colors for the four chat message types.
+// Holds opaque native AARRGGBB colors for the four configurable chat message types.
 struct Colors {
     std::uint32_t chat, team, admin, buddy;
 };
@@ -23,7 +23,8 @@ std::optional<std::uint32_t> parse_color(std::string_view text) noexcept;
 // The returned pointer borrows buffer; the native queue copies it synchronously.
 const wchar_t *one_line(const wchar_t *text, std::array<wchar_t, kChatCapacity> &buffer) noexcept;
 
-// Selects admin, buddy, team or ordinary chat color, in that precedence order.
-std::uint32_t message_color(const Colors &colors, std::uint32_t sender, std::uint32_t channel, bool buddy) noexcept;
+// Selects the chat color, with admin messages taking precedence over team and buddy colors.
+// The caller supplies teammate_buddy only for friends on the recipient's team.
+std::uint32_t message_color(const Colors &colors, std::uint32_t sender, std::uint32_t channel, bool teammate_buddy) noexcept;
 
 } // namespace fc::core_plugin::colored_chats

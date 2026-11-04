@@ -88,10 +88,10 @@ DirectInputExports resolve_exports(HMODULE module) noexcept {
             .getdf_di_joystick = resolve<GetdfDIJoystickFn>(module, "GetdfDIJoystick")};
 }
 
-// Checks that all six forwarding destinations are available.
+// Checks that the five required forwarding destinations are available.
 bool complete(const DirectInputExports &exports) noexcept {
     return exports.direct_input8_create != nullptr && exports.dll_can_unload_now != nullptr && exports.dll_get_class_object != nullptr &&
-           exports.dll_register_server != nullptr && exports.dll_unregister_server != nullptr && exports.getdf_di_joystick != nullptr;
+           exports.dll_register_server != nullptr && exports.dll_unregister_server != nullptr;
 }
 
 // Writes a proxy warning to the debugger, using a fixed message if constructing the warning fails.
@@ -196,7 +196,7 @@ bool same_proxy_file(const std::filesystem::path &candidate) {
     return true;
 }
 
-// Loads the complete system forwarding table and retains its module, or returns the Windows error.
+// Loads the system forwarding table and retains its module, or returns the Windows error.
 std::expected<DirectInputExports, DWORD> load_system_direct_input() {
     // Resolve System32 explicitly to load Windows' DirectInput DLL instead of this proxy.
     std::array<wchar_t, 32'768> system_directory{};
@@ -211,7 +211,7 @@ std::expected<DirectInputExports, DWORD> load_system_direct_input() {
         return std::unexpected(GetLastError());
     }
 
-    // All six documented exports are required from the system fallback because every forwarding route may use it.
+    // Wine may omit GetdfDIJoystick; its forwarding route can use the linked joystick format instead.
     const auto exports = resolve_exports(system_module);
     if (!complete(exports)) {
         FreeLibrary(system_module);
@@ -243,7 +243,7 @@ void overlay_chain_exports(DirectInputExports &exports, const DirectInputExports
     }
 }
 
-// Selects one adjacent proxy and overlays its accepted exports onto the complete system forwarding table.
+// Selects one adjacent proxy and overlays its accepted exports onto the system forwarding table.
 // Call after system forwarding is ready; rejected candidates leave that table in use.
 void load_optional_chain(DirectInputExports &exports) {
     // Look beside this loader for a single optional dinput8_*.dll proxy.
@@ -330,7 +330,7 @@ void load_optional_chain(DirectInputExports &exports) {
     overlay_chain_exports(exports, chain);
 }
 
-// Builds complete forwarding tables, preserving the system fallback if optional proxy discovery throws.
+// Builds forwarding tables, preserving the system fallback if optional proxy discovery throws.
 std::expected<ForwardingState, DWORD> initialize_forwarding() noexcept {
     try {
         auto system = load_system_direct_input();
@@ -433,11 +433,14 @@ extern "C" HRESULT WINAPI FC_DInput8_DllUnregisterServer() noexcept {
     return exports ? (*exports)->dll_unregister_server() : forwarding_failure(exports.error());
 }
 
-// Call outside loader lock; returns the selected DLL's joystick format or null if forwarding is unavailable.
-// The format remains owned by that DLL, whose module reference is retained.
+// Call outside loader lock; returns the selected DLL's joystick format or the linked format if its getter is absent.
+// The format remains owned by its module; returns null if forwarding is unavailable.
 extern "C" LPCDIDATAFORMAT WINAPI FC_DInput8_GetdfDIJoystick() noexcept {
     const auto exports = active_exports();
-    return exports ? (*exports)->getdf_di_joystick() : nullptr;
+    if (!exports) {
+        return nullptr;
+    }
+    return (*exports)->getdf_di_joystick ? (*exports)->getdf_di_joystick() : &c_dfDIJoystick;
 }
 
 // Initialize optional GameExt before executable constructors; DirectInput forwarding and FC startup remain deferred.
